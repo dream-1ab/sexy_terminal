@@ -1,0 +1,17 @@
+
+# FVM Version Cache
+.fvm/
+**/.DS_Store
+**/__pycache__/
+python/dist/
+python/build/
+python/reminal.egg-info/
+python/src/reminal.egg-info/
+python/packaging/
+flutter/packages/*/example/
+flutter/packages/*/test/
+flutter/packages/*/bin/
+flutter/packages/*/.dart_tool/
+flutter/build/
+flutter/.dart_tool/
+flutter/macos/Pods/
