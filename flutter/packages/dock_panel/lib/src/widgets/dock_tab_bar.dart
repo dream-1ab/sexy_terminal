@@ -46,66 +46,72 @@ class _DockTabBarState extends ConsumerState<DockTabBar> {
                   clipBehavior: Clip.hardEdge,
                   itemCount: group.panels.length,
                   itemBuilder: (context, index) {
-                  final panel = group.panels[index];
-                  final isActive = index == group.activeIndex;
-                  return _ReorderableDockTab(
-                    panel: panel,
-                    groupId: group.id,
-                    index: index,
-                    panels: group.panels,
-                    isActive: isActive,
-                    insertionIndex: _insertionIndex,
-                    onTap: () {
-                      ref
-                          .read(dockManagerProvider.notifier)
-                          .setActiveIndex(group.id, index);
-                    },
-                    onClose: panel.closable
-                        ? () {
-                            ref
-                                .read(dockManagerProvider.notifier)
-                                .removePanel(panel.id);
-                          }
-                        : null,
-                    onReorder: (oldIndex, newIndex) {
-                      ref
-                          .read(dockManagerProvider.notifier)
-                          .reorderPanel(group.id, oldIndex, newIndex);
-                      setState(() => _insertionIndex = null);
-                    },
-                    onInsertionIndexChanged: (idx) {
-                      setState(() => _insertionIndex = idx);
-                    },
-                    onDragLeave: () {
-                      setState(() => _insertionIndex = null);
-                    },
-                  );
-                },
-              ),
-            ),
-            // Maximize button for the active panel.
-            if (group.activePanel != null)
-              SizedBox(
-                width: 28,
-                height: 28,
-                child: IconButton(
-                  icon: Icon(Icons.fullscreen,
-                      size: 16, color: theme.tabTextColor),
-                  onPressed: () {
-                    ref
-                        .read(dockManagerProvider.notifier)
-                        .toggleMaximize(group.activePanel!.id);
+                    final panel = group.panels[index];
+                    final isActive = index == group.activeIndex;
+                    return _ReorderableDockTab(
+                      panel: panel,
+                      groupId: group.id,
+                      index: index,
+                      panels: group.panels,
+                      isActive: isActive,
+                      insertionIndex: _insertionIndex,
+                      onTap: () {
+                        ref
+                            .read(dockManagerProvider.notifier)
+                            .setActiveIndex(group.id, index);
+                      },
+                      onClose: panel.closable
+                          ? panel.onClose ??
+                                () {
+                                  ref
+                                      .read(dockManagerProvider.notifier)
+                                      .removePanel(panel.id);
+                                }
+                          : null,
+                      onReorder: (oldIndex, newIndex) {
+                        ref
+                            .read(dockManagerProvider.notifier)
+                            .reorderPanel(group.id, oldIndex, newIndex);
+                        setState(() => _insertionIndex = null);
+                      },
+                      onInsertionIndexChanged: (idx) {
+                        setState(() => _insertionIndex = idx);
+                      },
+                      onDragLeave: () {
+                        setState(() => _insertionIndex = null);
+                      },
+                    );
                   },
-                  tooltip: 'Maximize',
-                  splashRadius: 12,
-                  padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints(minWidth: 28, minHeight: 28),
                 ),
               ),
-            const SizedBox(width: 4),
-          ],
-        );
+              // Maximize button for the active panel.
+              if (group.activePanel != null)
+                SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: IconButton(
+                    icon: Icon(
+                      Icons.fullscreen,
+                      size: 16,
+                      color: theme.tabTextColor,
+                    ),
+                    onPressed: () {
+                      ref
+                          .read(dockManagerProvider.notifier)
+                          .toggleMaximize(group.activePanel!.id);
+                    },
+                    tooltip: 'Maximize',
+                    splashRadius: 12,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 28,
+                      minHeight: 28,
+                    ),
+                  ),
+                ),
+              const SizedBox(width: 4),
+            ],
+          );
         },
       ),
     );
@@ -159,54 +165,67 @@ class _ReorderableDockTabState extends State<_ReorderableDockTab> {
   @override
   Widget build(BuildContext context) {
     final theme = DockTheme.of(context);
-    final bgColor =
-        widget.isActive ? theme.activeTabColor : theme.inactiveTabColor;
-    final textColor =
-        widget.isActive ? theme.activeTabTextColor : theme.tabTextColor;
+    final bgColor = widget.isActive
+        ? theme.activeTabColor
+        : theme.inactiveTabColor;
+    final textColor = widget.isActive
+        ? theme.activeTabTextColor
+        : theme.tabTextColor;
 
     // Show insertion indicator on the left side of this tab.
     final showLeftIndicator = widget.insertionIndex == widget.index;
     // Show insertion indicator on the right side of this tab (only for last tab).
     final showRightIndicator = widget.insertionIndex == widget.index + 1;
 
+    final defaultHeaderContent = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (widget.panel.icon != null) ...[
+          Icon(widget.panel.icon, size: 14, color: textColor),
+          const SizedBox(width: 6),
+        ],
+        Text(
+          widget.panel.title,
+          style: TextStyle(
+            color: textColor,
+            fontSize: 12,
+            fontWeight: widget.isActive ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
+        if (widget.onClose != null) ...[
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: widget.onClose,
+            child: Icon(
+              Icons.close,
+              size: 14,
+              color: textColor.withValues(alpha: 0.6),
+            ),
+          ),
+        ],
+      ],
+    );
+    final headerContent =
+        theme.headerContentBuilder?.call(
+          context,
+          widget.panel,
+          widget.index,
+          widget.isActive,
+          widget.panel.icon,
+          widget.panel.title,
+          textColor,
+          widget.onTap,
+          widget.onClose,
+        ) ??
+        defaultHeaderContent;
+
     final tabSurface = Container(
       padding: theme.tabPadding,
       decoration: BoxDecoration(color: bgColor),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (widget.panel.icon != null) ...[
-            Icon(widget.panel.icon, size: 14, color: textColor),
-            const SizedBox(width: 6),
-          ],
-          Text(
-            widget.panel.title,
-            style: TextStyle(
-              color: textColor,
-              fontSize: 12,
-              fontWeight:
-                  widget.isActive ? FontWeight.w600 : FontWeight.normal,
-            ),
-          ),
-          if (widget.onClose != null) ...[
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: widget.onClose,
-              child: Icon(
-                Icons.close,
-                size: 14,
-                color: textColor.withValues(alpha: 0.6),
-              ),
-            ),
-          ],
-        ],
-      ),
+      child: headerContent,
     );
 
-    final fullHeightTab = SizedBox(
-      height: theme.tabHeight,
-      child: tabSurface,
-    );
+    final fullHeightTab = SizedBox(height: theme.tabHeight, child: tabSurface);
 
     final tabContent = Padding(
       padding: EdgeInsetsGeometry.only(top: 6),
@@ -217,16 +236,7 @@ class _ReorderableDockTabState extends State<_ReorderableDockTab> {
             : fullHeightTab,
       ),
     );
-    final builtTab = theme.tabBuilder?.call(
-          context,
-          widget.panel,
-          widget.index,
-          widget.isActive,
-          tabContent,
-          widget.onTap,
-          widget.onClose,
-        ) ??
-        tabContent;
+    final builtTab = tabContent;
 
     final draggableTab = Draggable<DockDragData>(
       data: DockDragData(
@@ -281,10 +291,7 @@ class _ReorderableDockTabState extends State<_ReorderableDockTab> {
         }
       },
       onMove: (details) {
-        final insertIdx = _computeInsertionIndex(
-          details.offset,
-          context,
-        );
+        final insertIdx = _computeInsertionIndex(details.offset, context);
         widget.onInsertionIndexChanged(insertIdx);
       },
       onLeave: (_) {
@@ -320,13 +327,39 @@ class _ActiveTabClipper extends CustomClipper<Path> {
     final path = Path();
     path.moveTo(radius, 0);
     path.lineTo(size.width - radius * 2, 0);
-    path.arcTo(Rect.fromCircle(center: Offset(size.width - radius * 2, radius), radius: radius), 0 - pi / 2, pi / 2, false);
+    path.arcTo(
+      Rect.fromCircle(
+        center: Offset(size.width - radius * 2, radius),
+        radius: radius,
+      ),
+      0 - pi / 2,
+      pi / 2,
+      false,
+    );
     path.lineTo(size.width - radius, size.height - radius);
-    path.arcTo(Rect.fromCircle(center: Offset(size.width, size.height - radius), radius: radius), pi, -(pi / 2), false);
+    path.arcTo(
+      Rect.fromCircle(
+        center: Offset(size.width, size.height - radius),
+        radius: radius,
+      ),
+      pi,
+      -(pi / 2),
+      false,
+    );
     path.lineTo(0, size.height);
-    path.arcTo(Rect.fromCircle(center: Offset(0, size.height - radius), radius: radius), pi / 2, -(pi / 2), false);
+    path.arcTo(
+      Rect.fromCircle(center: Offset(0, size.height - radius), radius: radius),
+      pi / 2,
+      -(pi / 2),
+      false,
+    );
     path.lineTo(radius, radius);
-    path.arcTo(Rect.fromCircle(center: Offset(radius * 2, radius), radius: radius), pi, pi / 2, false);
+    path.arcTo(
+      Rect.fromCircle(center: Offset(radius * 2, radius), radius: radius),
+      pi,
+      pi / 2,
+      false,
+    );
     path.close();
     return path;
   }
@@ -334,6 +367,7 @@ class _ActiveTabClipper extends CustomClipper<Path> {
   @override
   bool shouldReclip(covariant _ActiveTabClipper oldClipper) => false;
 }
+
 /// A thin vertical indicator shown during tab reordering.
 class _InsertionIndicator extends StatelessWidget {
   const _InsertionIndicator({required this.visible});
@@ -387,12 +421,14 @@ class _AnimatedDragFeedbackState extends State<_AnimatedDragFeedback>
       duration: const Duration(milliseconds: 200),
       vsync: this,
     );
-    _scaleAnimation = Tween<double>(begin: 0.85, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
-    );
-    _opacityAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-    );
+    _scaleAnimation = Tween<double>(
+      begin: 0.85,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    _opacityAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
     _controller.forward();
   }
 
@@ -409,10 +445,7 @@ class _AnimatedDragFeedbackState extends State<_AnimatedDragFeedback>
       builder: (context, child) {
         return Opacity(
           opacity: _opacityAnimation.value,
-          child: Transform.scale(
-            scale: _scaleAnimation.value,
-            child: child,
-          ),
+          child: Transform.scale(scale: _scaleAnimation.value, child: child),
         );
       },
       child: Material(

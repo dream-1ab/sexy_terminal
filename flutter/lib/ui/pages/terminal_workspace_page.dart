@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dock_panel/dock_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,6 +28,7 @@ class TerminalWorkspacePage extends ConsumerStatefulWidget {
 class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
   final _appState = AppState();
   late final DockManager _dockManager;
+  OverlayEntry? _tabMenu;
 
   @override
   void initState() {
@@ -75,7 +78,8 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
       id: id,
       title: definition.name,
       icon: Icons.terminal,
-      closable: false,
+      closable: true,
+      onClose: () => _closeTerminal(id),
       builder: (_) => TerminalPane(key: ValueKey(id), session: session),
     );
   }
@@ -115,6 +119,65 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
     await _appState.profileStore.saveProfile(widget.profile);
   }
 
+  Future<void> _reloadTerminal(String panelId) async {
+    final definition = widget.profile.sessions
+        .where((session) => session.id == panelId)
+        .firstOrNull;
+    if (definition == null) return;
+    _appState.sessions.remove(panelId)?.dispose();
+    _dockManager.updatePanel(_terminalPanel(definition));
+  }
+
+  Future<void> _closeTerminal(String panelId) async {
+    _appState.sessions.remove(panelId)?.dispose();
+    widget.profile.sessions.removeWhere((session) => session.id == panelId);
+    _dockManager.removePanel(panelId);
+    await _appState.profileStore.saveProfile(widget.profile);
+  }
+
+  void _showTabMenu(String panelId, Offset globalPosition) {
+    _tabMenu?.remove();
+    final overlay = Overlay.of(context);
+    final localPosition = (overlay.context.findRenderObject() as RenderBox)
+        .globalToLocal(globalPosition);
+    _tabMenu = OverlayEntry(
+      builder: (context) => Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _dismissTabMenu,
+            ),
+          ),
+          Positioned(
+            left: localPosition.dx,
+            top: localPosition.dy,
+            child: _TabContextMenu(
+              onEdit: () {
+                _dismissTabMenu();
+                _editTerminal(panelId);
+              },
+              onReload: () {
+                _dismissTabMenu();
+                _reloadTerminal(panelId);
+              },
+              onClose: () {
+                _dismissTabMenu();
+                _closeTerminal(panelId);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+    overlay.insert(_tabMenu!);
+  }
+
+  void _dismissTabMenu() {
+    _tabMenu?.remove();
+    _tabMenu = null;
+  }
+
   DockPanel _welcomePanel() {
     return DockPanel(
       id: 'welcome',
@@ -128,6 +191,10 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
   @override
   void dispose() {
     _dockManager.setLayoutChangeListener(null);
+    _dismissTabMenu();
+    if (widget.initialize) {
+      unawaited(_appState.profileStore.flushProfile(widget.profile));
+    }
     _appState.dispose();
     super.dispose();
   }
@@ -148,18 +215,156 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
           tabHeight: 34,
           tabShape: DockTabShape.pill,
           tabPadding: const EdgeInsets.only(left: 14, top: 0, right: 14),
-          tabBuilder: (context, panel, index, isActive, child, onTap, onClose) {
-            if (panel.id == 'welcome') return child;
-            return GestureDetector(
-              onSecondaryTap: () => _editTerminal(panel.id),
-              child: child,
-            );
-          },
+          headerContentBuilder:
+              (
+                context,
+                panel,
+                index,
+                isActive,
+                icon,
+                title,
+                textColor,
+                onTap,
+                onClose,
+              ) {
+                return _WorkspaceTabHeaderContent(
+                  panel: panel,
+                  icon: icon,
+                  title: title,
+                  textColor: textColor,
+                  onClose: onClose,
+                  onMenuRequested: (position) =>
+                      _showTabMenu(panel.id, position),
+                );
+              },
         ),
         child: const DockArea(),
       ),
     );
   }
+}
+
+class _WorkspaceTabHeaderContent extends StatelessWidget {
+  const _WorkspaceTabHeaderContent({
+    required this.panel,
+    required this.icon,
+    required this.title,
+    required this.textColor,
+    required this.onClose,
+    required this.onMenuRequested,
+  });
+
+  final DockPanel panel;
+  final IconData? icon;
+  final String title;
+  final Color textColor;
+  final VoidCallback? onClose;
+  final ValueChanged<Offset> onMenuRequested;
+
+  @override
+  Widget build(BuildContext context) {
+    final isWelcomePanel = panel.id == 'welcome';
+    return GestureDetector(
+      onSecondaryTapDown: isWelcomePanel
+          ? null
+          : (details) => onMenuRequested(details.globalPosition),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: textColor),
+            const SizedBox(width: 6),
+          ],
+          Text(title, style: TextStyle(color: textColor, fontSize: 12)),
+          if (!isWelcomePanel) ...[
+            const SizedBox(width: 8),
+            _TabMenuButton(onPressedAt: onMenuRequested, color: textColor),
+          ],
+          if (!isWelcomePanel && onClose != null) ...[
+            const SizedBox(width: 6),
+            GestureDetector(
+              onTap: onClose,
+              child: Icon(
+                Icons.close,
+                size: 14,
+                color: textColor.withValues(alpha: 0.7),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _TabMenuButton extends StatelessWidget {
+  const _TabMenuButton({required this.onPressedAt, required this.color});
+  final ValueChanged<Offset> onPressedAt;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTapDown: (details) => onPressedAt(details.globalPosition),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 5),
+      child: Icon(
+        Icons.more_vert,
+        size: 16,
+        color: color.withValues(alpha: 0.7),
+      ),
+    ),
+  );
+}
+
+class _TabContextMenu extends StatelessWidget {
+  const _TabContextMenu({
+    required this.onEdit,
+    required this.onReload,
+    required this.onClose,
+  });
+  final VoidCallback onEdit;
+  final VoidCallback onReload;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = MacosTheme.of(context);
+    return Container(
+      width: 150,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: theme.canvasColor,
+        border: Border.all(color: theme.dividerColor),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _TabContextMenuItem(label: 'Edit', onTap: onEdit),
+          _TabContextMenuItem(label: 'Reload', onTap: onReload),
+          _TabContextMenuItem(label: 'Close', onTap: onClose),
+        ],
+      ),
+    );
+  }
+}
+
+class _TabContextMenuItem extends StatelessWidget {
+  const _TabContextMenuItem({required this.label, required this.onTap});
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Align(alignment: Alignment.centerLeft, child: Text(label)),
+      ),
+    ),
+  );
 }
 
 class _WelcomePanel extends StatelessWidget {

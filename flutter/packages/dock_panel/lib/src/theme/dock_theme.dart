@@ -2,15 +2,18 @@ import 'package:flutter/widgets.dart';
 
 import '../models/models.dart';
 
-typedef DockTabBuilder = Widget Function(
-  BuildContext context,
-  DockPanel panel,
-  int index,
-  bool isActive,
-  Widget child,
-  VoidCallback onTap,
-  VoidCallback? onClose,
-);
+typedef DockHeaderContentBuilder =
+    Widget Function(
+      BuildContext context,
+      DockPanel panel,
+      int index,
+      bool isActive,
+      IconData? icon,
+      String title,
+      Color textColor,
+      VoidCallback onTap,
+      VoidCallback? onClose,
+    );
 
 /// Tab shape style.
 enum DockTabShape { square, rounded, pill }
@@ -37,7 +40,7 @@ class DockThemeData {
       topLeft: Radius.circular(4),
       topRight: Radius.circular(4),
     ),
-    this.tabBuilder,
+    this.headerContentBuilder,
   });
 
   final Color backgroundColor;
@@ -56,7 +59,7 @@ class DockThemeData {
   final EdgeInsets tabPadding;
   final BorderRadius borderRadius;
   final BorderRadius tabBorderRadius;
-  final DockTabBuilder? tabBuilder;
+  final DockHeaderContentBuilder? headerContentBuilder;
 
   /// A light theme preset.
   static const light = DockThemeData(
@@ -89,7 +92,7 @@ class DockThemeData {
     EdgeInsets? tabPadding,
     BorderRadius? borderRadius,
     BorderRadius? tabBorderRadius,
-    DockTabBuilder? tabBuilder,
+    DockHeaderContentBuilder? headerContentBuilder,
   }) {
     return DockThemeData(
       backgroundColor: backgroundColor ?? this.backgroundColor,
@@ -109,18 +112,14 @@ class DockThemeData {
       tabPadding: tabPadding ?? this.tabPadding,
       borderRadius: borderRadius ?? this.borderRadius,
       tabBorderRadius: tabBorderRadius ?? this.tabBorderRadius,
-      tabBuilder: tabBuilder ?? this.tabBuilder,
+      headerContentBuilder: headerContentBuilder ?? this.headerContentBuilder,
     );
   }
 }
 
 /// Provides [DockThemeData] to the dock widget tree.
 class DockTheme extends InheritedWidget {
-  const DockTheme({
-    super.key,
-    required this.data,
-    required super.child,
-  });
+  const DockTheme({super.key, required this.data, required super.child});
 
   final DockThemeData data;
 

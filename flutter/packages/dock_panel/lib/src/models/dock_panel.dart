@@ -8,12 +8,14 @@ class DockPanel {
     required this.builder,
     this.icon,
     this.closable = true,
+    this.onClose,
   });
 
   final String id;
   final String title;
   final IconData? icon;
   final bool closable;
+  final VoidCallback? onClose;
   final WidgetBuilder builder;
 
   /// Creates a copy with optionally overridden fields.
@@ -23,6 +25,7 @@ class DockPanel {
     WidgetBuilder? builder,
     IconData? icon,
     bool? closable,
+    VoidCallback? onClose,
     bool clearIcon = false,
   }) {
     return DockPanel(
@@ -31,6 +34,7 @@ class DockPanel {
       builder: builder ?? this.builder,
       icon: clearIcon ? null : (icon ?? this.icon),
       closable: closable ?? this.closable,
+      onClose: onClose ?? this.onClose,
     );
   }
 
