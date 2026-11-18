@@ -40,8 +40,12 @@ dependencies:
   flutter_pty: ^0.4.2
   flutter_riverpod: ^2.6.1
   provider: ^6.1.5+1
+  path_provider: ^2.1.6
+  macos_ui: ^2.2.2
 
 dependency_overrides:
+  dock_panel:
+    path: packages/dock_panel
   flutter_pty:
     path: packages/flutter_pty
   xterm:

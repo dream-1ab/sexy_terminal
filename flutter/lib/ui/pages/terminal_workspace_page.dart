@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app_state.dart';
+import '../../profile_models.dart';
 import 'terminal_pane.dart';
 
 class TerminalWorkspacePage extends ConsumerStatefulWidget {
-  const TerminalWorkspacePage({super.key, this.initialize = true});
+  const TerminalWorkspacePage({super.key, required this.profile, this.initialize = true});
 
+  final WorkspaceProfile profile;
   final bool initialize;
 
   @override
@@ -25,18 +27,20 @@ class _TerminalWorkspacePageState
     if (!widget.initialize) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _addWelcomePanel();
-      _addTerminal();
+      for (final definition in widget.profile.sessions) {
+        _addTerminal(definition);
+      }
     });
   }
 
-  void _addTerminal() {
+  void _addTerminal([SessionProfile? definition]) {
     final number = _appState.nextTerminalNumber++;
-    final id = 'terminal-$number';
-    final session = _appState.createSession(id);
+    final id = definition?.id ?? 'terminal-$number';
+    final session = _appState.createSession(id, definition: definition);
     ref.read(dockManagerProvider.notifier).addPanel(
           DockPanel(
             id: id,
-            title: 'Terminal $number',
+            title: definition?.name ?? 'Terminal $number',
             icon: Icons.terminal,
             builder: (_) => TerminalPane(
               key: ValueKey(number),
@@ -69,14 +73,21 @@ class _TerminalWorkspacePageState
     return Scaffold(
       body: DockTheme(
         data: DockThemeData(
-          backgroundColor: const Color(0xff111318),
-          tabBarColor: const Color(0xff1b1f27),
-          activeTabColor: const Color(0xff242a34),
-          dividerColor: const Color(0xff343b48),
+          backgroundColor: const Color.fromRGBO(18, 19, 20, 1),
+          tabBarColor: const Color.fromRGBO(43, 43, 43, 1),
+          activeTabColor: const Color.fromRGBO(18, 19, 20, 1),
+          inactiveTabColor: Colors.transparent,
+          dividerColor: Colors.transparent,
           tabTextColor: const Color(0xffb8c0cc),
           activeTabTextColor: Colors.white,
           dividerThickness: 4,
           tabHeight: 34,
+          tabShape: DockTabShape.pill,
+          tabPadding: const EdgeInsets.only(
+            left: 14,
+            top: 0,
+            right: 14,
+          ),
         ),
         child: const DockArea(),
       ),
