@@ -13,6 +13,7 @@ String generateNodeId() => _uuid.v4();
 /// Use [dockManagerProvider] to access it in your widget tree.
 class DockManager extends Notifier<DockLayout> {
   DockStorage? _storage;
+  void Function(Map<String, dynamic>? layout)? _onLayoutChanged;
 
   /// Panel registry: id -> DockPanel (for rebuild after restore).
   final Map<String, DockPanel> _registry = {};
@@ -25,6 +26,25 @@ class DockManager extends Notifier<DockLayout> {
     _storage = storage;
   }
 
+  /// Receives the serialized layout after every dock mutation.
+  void setLayoutChangeListener(
+    void Function(Map<String, dynamic>? layout)? listener,
+  ) {
+    _onLayoutChanged = listener;
+  }
+
+  /// Export the current layout for application-owned persistence.
+  Map<String, dynamic>? exportLayout() {
+    final root = state.root;
+    return root == null ? null : _serializeNode(root);
+  }
+
+  /// Restore a previously exported layout after all panels are registered.
+  void restoreLayout(Map<String, dynamic> layout) {
+    final root = _deserializeNode(layout);
+    if (root != null) state = DockLayout(root: root);
+  }
+
   /// Register a panel so it can be referenced by id during restore.
   void registerPanel(DockPanel panel) {
     _registry[panel.id] = panel;
@@ -35,8 +55,22 @@ class DockManager extends Notifier<DockLayout> {
     _registry.remove(panelId);
   }
 
+  /// Remove every panel and reset the layout to an empty dock area.
+  ///
+  /// Applications that reuse a single dock manager between routes can call
+  /// this before constructing a new workspace.
+  void clear() {
+    _registry.clear();
+    state = const DockLayout();
+    _persist();
+  }
+
   /// Get a registered panel by id.
   DockPanel? getPanel(String id) => _registry[id];
+
+  /// Whether a panel is currently present in the visible dock tree.
+  bool containsPanel(String panelId) =>
+      _findPanelInTree(state.root, panelId) != null;
 
   // ─── Mutations ────────────────────────────────────────────
 
@@ -48,10 +82,7 @@ class DockManager extends Notifier<DockLayout> {
     if (current.root == null) {
       // First panel: create root group.
       state = DockLayout(
-        root: DockGroup(
-          id: generateNodeId(),
-          panels: [panel],
-        ),
+        root: DockGroup(id: generateNodeId(), panels: [panel]),
       );
     } else if (targetGroupId != null) {
       state = DockLayout(
@@ -79,11 +110,7 @@ class DockManager extends Notifier<DockLayout> {
   }
 
   /// Move a panel to a target group at a given position.
-  void movePanel(
-    String panelId,
-    String targetGroupId,
-    DockPosition position,
-  ) {
+  void movePanel(String panelId, String targetGroupId, DockPosition position) {
     final panel = _findPanelInTree(state.root, panelId);
     if (panel == null) return;
 
@@ -169,6 +196,7 @@ class DockManager extends Notifier<DockLayout> {
   // ─── Private helpers ──────────────────────────────────────
 
   void _persist() {
+    _onLayoutChanged?.call(exportLayout());
     if (_storage == null) return;
     try {
       final root = state.root;
@@ -183,13 +211,42 @@ class DockManager extends Notifier<DockLayout> {
     }
   }
 
+  /// Replace a registered panel while preserving its position in the layout.
+  void updatePanel(DockPanel panel) {
+    _registry[panel.id] = panel;
+    final root = state.root;
+    if (root == null) return;
+    state = DockLayout(
+      root: _replacePanel(root, panel),
+      maximizedPanelId: state.maximizedPanelId,
+    );
+    _persist();
+  }
+
+  DockNode _replacePanel(DockNode node, DockPanel panel) => switch (node) {
+    DockGroup() => DockGroup(
+      id: node.id,
+      panels: [
+        for (final item in node.panels)
+          if (item.id == panel.id) panel else item,
+      ],
+      activeIndex: node.activeIndex,
+    ),
+    DockSplit() => DockSplit(
+      id: node.id,
+      axis: node.axis,
+      children: node.children
+          .map((child) => _replacePanel(child, panel))
+          .toList(),
+      flexes: node.flexes,
+    ),
+  };
+
   DockGroup? _findFirstGroup(DockNode node) {
     return switch (node) {
       DockGroup() => node,
-      DockSplit(:final children) => children
-          .map(_findFirstGroup)
-          .where((g) => g != null)
-          .firstOrNull,
+      DockSplit(:final children) =>
+        children.map(_findFirstGroup).where((g) => g != null).firstOrNull,
     };
   }
 
@@ -198,28 +255,30 @@ class DockManager extends Notifier<DockLayout> {
     return switch (node) {
       DockGroup(:final panels) =>
         panels.where((p) => p.id == panelId).firstOrNull,
-      DockSplit(:final children) => children
-          .map((c) => _findPanelInTree(c, panelId))
-          .where((p) => p != null)
-          .firstOrNull,
+      DockSplit(:final children) =>
+        children
+            .map((c) => _findPanelInTree(c, panelId))
+            .where((p) => p != null)
+            .firstOrNull,
     };
   }
 
   DockNode _addPanelToGroup(DockNode node, String groupId, DockPanel panel) {
     return switch (node) {
       DockGroup() when node.id == groupId => DockGroup(
-          id: node.id,
-          panels: [...node.panels, panel],
-          activeIndex: node.panels.length,
-        ),
+        id: node.id,
+        panels: [...node.panels, panel],
+        activeIndex: node.panels.length,
+      ),
       DockGroup() => node,
       DockSplit() => DockSplit(
-          id: node.id,
-          axis: node.axis,
-          children:
-              node.children.map((c) => _addPanelToGroup(c, groupId, panel)).toList(),
-          flexes: node.flexes,
-        ),
+        id: node.id,
+        axis: node.axis,
+        children: node.children
+            .map((c) => _addPanelToGroup(c, groupId, panel))
+            .toList(),
+        flexes: node.flexes,
+      ),
     };
   }
 
@@ -265,12 +324,9 @@ class DockManager extends Notifier<DockLayout> {
   ) {
     switch (node) {
       case DockGroup() when node.id == targetGroupId:
-        final newGroup = DockGroup(
-          id: generateNodeId(),
-          panels: [panel],
-        );
-        final axis = (position == DockPosition.left ||
-                position == DockPosition.right)
+        final newGroup = DockGroup(id: generateNodeId(), panels: [panel]);
+        final axis =
+            (position == DockPosition.left || position == DockPosition.right)
             ? DockAxis.horizontal
             : DockAxis.vertical;
         final isAfter =
@@ -298,18 +354,19 @@ class DockManager extends Notifier<DockLayout> {
   DockNode _setActiveIndex(DockNode node, String groupId, int index) {
     return switch (node) {
       DockGroup() when node.id == groupId => DockGroup(
-          id: node.id,
-          panels: node.panels,
-          activeIndex: index.clamp(0, node.panels.length - 1),
-        ),
+        id: node.id,
+        panels: node.panels,
+        activeIndex: index.clamp(0, node.panels.length - 1),
+      ),
       DockGroup() => node,
       DockSplit() => DockSplit(
-          id: node.id,
-          axis: node.axis,
-          children:
-              node.children.map((c) => _setActiveIndex(c, groupId, index)).toList(),
-          flexes: node.flexes,
-        ),
+        id: node.id,
+        axis: node.axis,
+        children: node.children
+            .map((c) => _setActiveIndex(c, groupId, index))
+            .toList(),
+        flexes: node.flexes,
+      ),
     };
   }
 
@@ -321,16 +378,19 @@ class DockManager extends Notifier<DockLayout> {
   ) {
     return switch (node) {
       DockGroup() when node.id == groupId => _reorderGroupPanels(
-          node, oldIndex, newIndex),
+        node,
+        oldIndex,
+        newIndex,
+      ),
       DockGroup() => node,
       DockSplit() => DockSplit(
-          id: node.id,
-          axis: node.axis,
-          children: node.children
-              .map((c) => _reorderPanel(c, groupId, oldIndex, newIndex))
-              .toList(),
-          flexes: node.flexes,
-        ),
+        id: node.id,
+        axis: node.axis,
+        children: node.children
+            .map((c) => _reorderPanel(c, groupId, oldIndex, newIndex))
+            .toList(),
+        flexes: node.flexes,
+      ),
     };
   }
 
@@ -366,18 +426,19 @@ class DockManager extends Notifier<DockLayout> {
     return switch (node) {
       DockGroup() => node,
       DockSplit() when node.id == splitId => DockSplit(
-          id: node.id,
-          axis: node.axis,
-          children: node.children,
-          flexes: flexes,
-        ),
+        id: node.id,
+        axis: node.axis,
+        children: node.children,
+        flexes: flexes,
+      ),
       DockSplit() => DockSplit(
-          id: node.id,
-          axis: node.axis,
-          children:
-              node.children.map((c) => _resizeSplit(c, splitId, flexes)).toList(),
-          flexes: node.flexes,
-        ),
+        id: node.id,
+        axis: node.axis,
+        children: node.children
+            .map((c) => _resizeSplit(c, splitId, flexes))
+            .toList(),
+        flexes: node.flexes,
+      ),
     };
   }
 
@@ -386,18 +447,18 @@ class DockManager extends Notifier<DockLayout> {
   Map<String, dynamic> _serializeNode(DockNode node) {
     return switch (node) {
       DockGroup() => {
-          'type': 'group',
-          'id': node.id,
-          'panels': node.panels.map((p) => p.id).toList(),
-          'activeIndex': node.activeIndex,
-        },
+        'type': 'group',
+        'id': node.id,
+        'panels': node.panels.map((p) => p.id).toList(),
+        'activeIndex': node.activeIndex,
+      },
       DockSplit() => {
-          'type': 'split',
-          'id': node.id,
-          'axis': node.axis == DockAxis.horizontal ? 'h' : 'v',
-          'children': node.children.map(_serializeNode).toList(),
-          'flexes': node.flexes,
-        },
+        'type': 'split',
+        'id': node.id,
+        'axis': node.axis == DockAxis.horizontal ? 'h' : 'v',
+        'children': node.children.map(_serializeNode).toList(),
+        'flexes': node.flexes,
+      },
     };
   }
 
@@ -417,9 +478,11 @@ class DockManager extends Notifier<DockLayout> {
         activeIndex: (data['activeIndex'] as int?) ?? 0,
       );
     } else if (type == 'split') {
-      final axis =
-          data['axis'] == 'h' ? DockAxis.horizontal : DockAxis.vertical;
-      final childrenData = (data['children'] as List).cast<Map<String, dynamic>>();
+      final axis = data['axis'] == 'h'
+          ? DockAxis.horizontal
+          : DockAxis.vertical;
+      final childrenData = (data['children'] as List)
+          .cast<Map<String, dynamic>>();
       final flexes = (data['flexes'] as List).cast<double>();
       final children = <DockNode>[];
       final validFlexes = <double>[];
@@ -446,5 +509,6 @@ class DockManager extends Notifier<DockLayout> {
 }
 
 /// The main Riverpod provider for the dock layout manager.
-final dockManagerProvider =
-    NotifierProvider<DockManager, DockLayout>(DockManager.new);
+final dockManagerProvider = NotifierProvider<DockManager, DockLayout>(
+  DockManager.new,
+);

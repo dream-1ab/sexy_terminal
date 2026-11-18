@@ -1,13 +1,19 @@
 import 'package:dock_panel/dock_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:macos_ui/macos_ui.dart';
 
 import '../../app_state.dart';
 import '../../profile_models.dart';
+import '../components/session_editor_sheet.dart';
 import 'terminal_pane.dart';
 
 class TerminalWorkspacePage extends ConsumerStatefulWidget {
-  const TerminalWorkspacePage({super.key, required this.profile, this.initialize = true});
+  const TerminalWorkspacePage({
+    super.key,
+    required this.profile,
+    this.initialize = true,
+  });
 
   final WorkspaceProfile profile;
   final bool initialize;
@@ -17,55 +23,113 @@ class TerminalWorkspacePage extends ConsumerStatefulWidget {
       _TerminalWorkspacePageState();
 }
 
-class _TerminalWorkspacePageState
-    extends ConsumerState<TerminalWorkspacePage> {
+class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
   final _appState = AppState();
+  late final DockManager _dockManager;
 
   @override
   void initState() {
     super.initState();
+    _dockManager = ref.read(dockManagerProvider.notifier);
     if (!widget.initialize) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _addWelcomePanel();
-      for (final definition in widget.profile.sessions) {
-        _addTerminal(definition);
-      }
+      if (!mounted) return;
+      _initializeWorkspace();
     });
   }
 
-  void _addTerminal([SessionProfile? definition]) {
-    final number = _appState.nextTerminalNumber++;
-    final id = definition?.id ?? 'terminal-$number';
-    final session = _appState.createSession(id, definition: definition);
-    ref.read(dockManagerProvider.notifier).addPanel(
-          DockPanel(
-            id: id,
-            title: definition?.name ?? 'Terminal $number',
-            icon: Icons.terminal,
-            builder: (_) => TerminalPane(
-              key: ValueKey(number),
-              session: session,
-            ),
-          ),
-        );
+  void _initializeWorkspace() {
+    final savedLayout = widget.profile.dockLayout;
+    final panels = <DockPanel>[_welcomePanel()];
+    for (final definition in widget.profile.sessions) {
+      panels.add(_terminalPanel(definition));
+    }
+
+    for (final panel in panels) {
+      _dockManager.registerPanel(panel);
+    }
+    if (savedLayout != null) {
+      _dockManager.restoreLayout(savedLayout);
+      for (final panel in panels) {
+        if (!_dockManager.containsPanel(panel.id)) {
+          _dockManager.addPanel(panel);
+        }
+      }
+    } else {
+      for (final panel in panels) {
+        _dockManager.addPanel(panel);
+      }
+    }
+    _dockManager.setLayoutChangeListener(_saveLayout);
+    _saveLayout(_dockManager.exportLayout());
+  }
+
+  DockPanel _terminalPanel(
+    SessionProfile definition, {
+    TerminalSession? existingSession,
+  }) {
+    final id = definition.id;
+    final session =
+        existingSession ?? _appState.createSession(id, definition: definition);
+    return DockPanel(
+      id: id,
+      title: definition.name,
+      icon: Icons.terminal,
+      closable: false,
+      builder: (_) => TerminalPane(key: ValueKey(id), session: session),
+    );
+  }
+
+  Future<void> _addTerminal() async {
+    final number = widget.profile.sessions.length + 1;
+    final definition = SessionProfile(
+      id: '${widget.profile.id}-session-${DateTime.now().microsecondsSinceEpoch}',
+      name: 'Terminal $number',
+    );
+    widget.profile.sessions.add(definition);
+    final panel = _terminalPanel(definition);
+    _dockManager.addPanel(panel);
+    await _appState.profileStore.saveProfile(widget.profile);
+  }
+
+  Future<void> _editTerminal(String panelId) async {
+    final matches = widget.profile.sessions.where(
+      (session) => session.id == panelId,
+    );
+    if (matches.isEmpty) return;
+    final definition = matches.first;
+    final updated = await showSessionEditorSheet(context, definition);
+    if (updated == null || !mounted) return;
+    final index = widget.profile.sessions.indexWhere(
+      (session) => session.id == panelId,
+    );
+    widget.profile.sessions[index] = updated;
+    _dockManager.updatePanel(
+      _terminalPanel(updated, existingSession: _appState.sessions[panelId]),
+    );
+    await _appState.profileStore.saveProfile(widget.profile);
+  }
+
+  Future<void> _saveLayout(Map<String, dynamic>? layout) async {
+    widget.profile.dockLayout = layout;
+    await _appState.profileStore.saveProfile(widget.profile);
+  }
+
+  DockPanel _welcomePanel() {
+    return DockPanel(
+      id: 'welcome',
+      title: 'Welcome',
+      icon: Icons.waving_hand_outlined,
+      closable: false,
+      builder: (_) => _WelcomePanel(onPressed: _addTerminal),
+    );
   }
 
   @override
   void dispose() {
+    _dockManager.setLayoutChangeListener(null);
     _appState.dispose();
     super.dispose();
-  }
-
-  void _addWelcomePanel() {
-    ref.read(dockManagerProvider.notifier).addPanel(
-          DockPanel(
-            id: 'welcome',
-            title: 'Welcome',
-            icon: Icons.waving_hand_outlined,
-            closable: false,
-            builder: (_) => _WelcomePanel(onPressed: _addTerminal),
-          ),
-        );
   }
 
   @override
@@ -83,11 +147,14 @@ class _TerminalWorkspacePageState
           dividerThickness: 4,
           tabHeight: 34,
           tabShape: DockTabShape.pill,
-          tabPadding: const EdgeInsets.only(
-            left: 14,
-            top: 0,
-            right: 14,
-          ),
+          tabPadding: const EdgeInsets.only(left: 14, top: 0, right: 14),
+          tabBuilder: (context, panel, index, isActive, child, onTap, onClose) {
+            if (panel.id == 'welcome') return child;
+            return GestureDetector(
+              onSecondaryTap: () => _editTerminal(panel.id),
+              child: child,
+            );
+          },
         ),
         child: const DockArea(),
       ),
@@ -103,19 +170,16 @@ class _WelcomePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: TextButton.icon(
+      child: PushButton(
+        controlSize: ControlSize.regular,
         onPressed: onPressed,
-        icon: const Icon(Icons.add, size: 16),
-        label: const Text('New terminal'),
-        style: TextButton.styleFrom(
-          foregroundColor: const Color(0xffe7ebf2),
-          backgroundColor: const Color(0xff2a303a),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(4),
-            side: const BorderSide(color: Color(0xff4a5361)),
-          ),
-          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.add, size: 16),
+            SizedBox(width: 6),
+            Text('New terminal'),
+          ],
         ),
       ),
     );

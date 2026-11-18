@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:macos_ui/macos_ui.dart';
 
 import 'ui/pages/profile_home_page.dart';
 
@@ -7,64 +8,143 @@ class SexyTerminalApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return MacosApp(
       title: 'Sexy terminal',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark(useMaterial3: true).copyWith(
-        scaffoldBackgroundColor: const Color.fromRGBO(43, 43, 43, 1),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xffb8c0cc),
-          onPrimary: Color(0xff121314),
-          secondary: Color(0xff9ca6b5),
-          onSecondary: Color(0xff121314),
-          surface: Color(0xff121314),
-          onSurface: Color(0xffe7ebf2),
-          error: Color(0xffe57373),
-          onError: Color(0xff121314),
-        ),
+      theme: MacosThemeData.dark().copyWith(
         canvasColor: const Color.fromRGBO(43, 43, 43, 1),
-        visualDensity: VisualDensity.compact,
-        textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(
-            minimumSize: const Size(0, 30),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            shape: const RoundedRectangleBorder(),
-          ),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            minimumSize: const Size(0, 30),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            elevation: 0,
-            backgroundColor: const Color(0xff2a3036),
-            foregroundColor: const Color(0xffe7ebf2),
-            side: const BorderSide(color: Color(0xff4a5361)),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(3),
+        primaryColor: const Color(0xff8aa4c2),
+      ),
+      darkTheme: MacosThemeData.dark().copyWith(
+        canvasColor: const Color.fromRGBO(43, 43, 43, 1),
+        primaryColor: const Color(0xff8aa4c2),
+      ),
+      home: const _MainNavigation(),
+    );
+  }
+}
+
+class _MainNavigation extends StatefulWidget {
+  const _MainNavigation();
+
+  @override
+  State<_MainNavigation> createState() => _MainNavigationState();
+}
+
+class _MainNavigationState extends State<_MainNavigation> {
+  var _selectedIndex = 0;
+
+  static const _navigationBackground = Color.fromRGBO(43, 43, 43, 1);
+  static const _contentBackground = Color.fromRGBO(18, 19, 20, 1);
+
+  @override
+  Widget build(BuildContext context) {
+    return MacosWindow(
+      disableWallpaperTinting: true,
+      child: MacosScaffold(
+        backgroundColor: _contentBackground,
+        children: [
+          ContentArea(
+            builder: (context, scrollController) => Row(
+              children: [
+                SizedBox(
+                  width: 220,
+                  child: ColoredBox(
+                    color: _navigationBackground,
+                    child: SidebarItems(
+                      scrollController: scrollController,
+                      currentIndex: _selectedIndex,
+                      onChanged: (index) =>
+                          setState(() => _selectedIndex = index),
+                      items: const [
+                        SidebarItem(
+                          leading: Icon(Icons.workspaces_outlined),
+                          label: Text('Workspace Manager'),
+                        ),
+                        SidebarItem(
+                          leading: Icon(Icons.settings_outlined),
+                          label: Text('Settings'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: ColoredBox(
+                    color: _contentBackground,
+                    child: IndexedStack(
+                      index: _selectedIndex,
+                      children: const [ProfileHomePage(), _SettingsPage()],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
-        cardTheme: CardThemeData(
-          margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(4),
-          ),
-        ),
-        dialogTheme: DialogThemeData(
-          backgroundColor: const Color.fromRGBO(18, 19, 20, 1),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(4),
-          ),
-          insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-        ),
-        popupMenuTheme: PopupMenuThemeData(
-          color: const Color.fromRGBO(18, 19, 20, 1),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(4),
-          ),
-        ),
+        ],
       ),
-      home: const ProfileHomePage(),
+    );
+  }
+}
+
+class _SettingsPage extends StatelessWidget {
+  const _SettingsPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(28, 24, 28, 32),
+      children: [
+        Text('Settings', style: MacosTheme.of(context).typography.title2),
+        const SizedBox(height: 24),
+        Text('Appearance', style: MacosTheme.of(context).typography.headline),
+        const SizedBox(height: 12),
+        const _SettingRow(
+          title: 'Theme',
+          value: 'Dark',
+          icon: Icons.dark_mode_outlined,
+        ),
+        const _SettingRow(
+          title: 'Terminal font',
+          value: 'System monospace',
+          icon: Icons.font_download_outlined,
+        ),
+        const _SettingRow(
+          title: 'Terminal font size',
+          value: '14 pt',
+          icon: Icons.format_size,
+        ),
+      ],
+    );
+  }
+}
+
+class _SettingRow extends StatelessWidget {
+  const _SettingRow({
+    required this.title,
+    required this.value,
+    required this.icon,
+  });
+
+  final String title;
+  final String value;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 13),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: Color(0xff3d4148))),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: const Color(0xffb8c0cc)),
+          const SizedBox(width: 12),
+          Expanded(child: Text(title)),
+          Text(value, style: const TextStyle(color: Color(0xffa9b0bb))),
+        ],
+      ),
     );
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -9,9 +10,11 @@ import 'profile_store.dart';
 
 class TerminalSession {
   TerminalSession({SessionProfile? profile})
-      : terminal = Terminal(maxLines: 10000),
-        controller = TerminalController() {
-    final shell = profile?.shell ?? Platform.environment['SHELL'] ??
+    : terminal = Terminal(maxLines: 10000),
+      controller = TerminalController() {
+    final shell =
+        profile?.shell ??
+        Platform.environment['SHELL'] ??
         (Platform.isWindows ? 'cmd.exe' : 'bash');
     pty = Pty.start(
       shell,
@@ -19,9 +22,14 @@ class TerminalSession {
       columns: terminal.viewWidth,
       rows: terminal.viewHeight,
     );
-    pty.output.cast<List<int>>().transform(utf8.decoder).listen(terminal.write);
+    _outputSubscription = pty.output
+        .cast<List<int>>()
+        .transform(utf8.decoder)
+        .listen((data) {
+          if (!_disposed) terminal.write(data);
+        });
     pty.exitCode.then((code) {
-      terminal.write('\r\n[process exited: $code]\r\n');
+      if (!_disposed) terminal.write('\r\n[process exited: $code]\r\n');
     });
     terminal.onOutput = (data) => pty.write(utf8.encode(data));
     terminal.onResize = (width, height, _, __) => pty.resize(height, width);
@@ -29,6 +37,7 @@ class TerminalSession {
       Future<void>(() async {
         await Future<void>.delayed(const Duration(milliseconds: 300));
         for (final command in profile.startupCommands) {
+          if (_disposed) return;
           pty.write(utf8.encode('$command\n'));
           await Future<void>.delayed(const Duration(milliseconds: 150));
         }
@@ -39,8 +48,15 @@ class TerminalSession {
   final Terminal terminal;
   final TerminalController controller;
   late final Pty pty;
+  late final StreamSubscription<String> _outputSubscription;
+  var _disposed = false;
 
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    terminal.onOutput = null;
+    terminal.onResize = null;
+    unawaited(_outputSubscription.cancel());
     pty.kill();
     controller.dispose();
   }
@@ -67,9 +83,7 @@ class AppState {
     final profile = WorkspaceProfile(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       name: 'Default workspace',
-      sessions: [
-        SessionProfile(id: 'terminal-1', name: 'Terminal 1'),
-      ],
+      sessions: [SessionProfile(id: 'terminal-1', name: 'Terminal 1')],
     );
     await profileStore.saveProfile(profile);
     profiles = [...profiles, profile];
