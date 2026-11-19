@@ -20,10 +20,7 @@ void main() {
                 appState: appState,
                 workspaceId: 'test',
               ),
-              child: const TerminalWorkspacePage(
-                initialize: false,
-                workspaceId: 'test',
-              ),
+              child: const TerminalWorkspacePage(workspaceId: 'test'),
             ),
           ),
         ),

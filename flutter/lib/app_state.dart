@@ -117,6 +117,7 @@ class TerminalSession {
   late final Pty pty;
   late final StreamSubscription<String> _outputSubscription;
   var _disposed = false;
+  var _terminated = false;
 
   void updateTheme(TerminalTheme value) {
     theme.value = value;
@@ -164,14 +165,31 @@ class TerminalSession {
     }
   }
 
+  void terminate() {
+    if (_terminated) return;
+    _terminated = true;
+    final processId = pty.pid;
+    final terminated = Platform.isWindows
+        ? pty.kill()
+        : Process.killPid(-processId, ProcessSignal.sigterm);
+    if (!terminated) {
+      pty.kill();
+    }
+    appLog(
+      AppLogTag.terminal,
+      'Terminated terminal process ${Platform.isWindows ? processId : '-$processId'} '
+      '(${terminated ? 'SIGTERM sent' : 'falling back to session leader'}).',
+    );
+  }
+
   void dispose() {
     if (_disposed) return;
     _disposed = true;
     appLog(AppLogTag.terminal, 'Disposing terminal session.');
+    terminate();
     terminal.onOutput = null;
     terminal.onResize = null;
     unawaited(_outputSubscription.cancel());
-    pty.kill();
     controller.dispose();
     _themeStore.removeListener(_updateFromGlobalTheme);
     theme.dispose();
@@ -403,9 +421,9 @@ class WorkspaceRuntimeState extends ChangeNotifier {
     return session;
   }
 
-  void disposeSession(String id) {
-    sessions.remove(id)?.dispose();
-  }
+  TerminalSession? detachSession(String id) => sessions.remove(id);
+
+  void disposeSession(String id) => detachSession(id)?.dispose();
 
   @override
   void dispose() {

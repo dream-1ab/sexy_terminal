@@ -16,14 +16,9 @@ import '../components/session_theme_dialog.dart';
 import 'terminal_pane.dart';
 
 class TerminalWorkspacePage extends ConsumerStatefulWidget {
-  const TerminalWorkspacePage({
-    super.key,
-    required this.workspaceId,
-    this.initialize = true,
-  });
+  const TerminalWorkspacePage({super.key, required this.workspaceId});
 
   final String workspaceId;
-  final bool initialize;
 
   @override
   ConsumerState<TerminalWorkspacePage> createState() =>
@@ -42,7 +37,6 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
     _appState = context.read<AppState>();
     _runtime = context.read<WorkspaceRuntimeState>();
     _dockManager = ref.read(dockManagerProvider.notifier);
-    if (!widget.initialize) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _initializeWorkspace();
@@ -175,8 +169,10 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
       AppLogTag.dock,
       'Reloading terminal tab $panelId in ${_runtime.workspaceId}.',
     );
-    _runtime.disposeSession(panelId);
+    final previousSession = _runtime.detachSession(panelId);
+    previousSession?.terminate();
     _dockManager.updatePanel(_terminalPanel(definition));
+    _disposeSessionAfterPanelUpdate(previousSession);
   }
 
   Future<void> _editTerminalTheme(String panelId) async {
@@ -212,10 +208,24 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
       AppLogTag.dock,
       'Closing terminal tab $panelId in ${_runtime.workspaceId}.',
     );
-    _runtime.disposeSession(panelId);
+    final session = _runtime.detachSession(panelId);
+    session?.terminate();
     _runtime.profile.sessions.removeWhere((session) => session.id == panelId);
     _dockManager.removePanel(panelId);
+    _disposeSessionAfterPanelUpdate(session);
     await _appState.saveProfile(_runtime.profile);
+  }
+
+  void _disposeSessionAfterPanelUpdate(TerminalSession? session) {
+    if (session == null) return;
+    appLog(
+      AppLogTag.terminal,
+      'Scheduling next-frame terminal resource disposal.',
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      appLog(AppLogTag.terminal, 'Running terminal resource disposal.');
+      session.dispose();
+    });
   }
 
   void _showTabMenu(String panelId, Offset globalPosition) {
@@ -284,9 +294,7 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
     appLog(AppLogTag.workspace, 'Disposing workspace ${_runtime.workspaceId}.');
     _dockManager.setLayoutChangeListener(null);
     _dismissTabMenu();
-    if (widget.initialize) {
-      unawaited(_appState.flushProfile(_runtime.profile));
-    }
+    unawaited(_appState.flushProfile(_runtime.profile));
     super.dispose();
   }
 

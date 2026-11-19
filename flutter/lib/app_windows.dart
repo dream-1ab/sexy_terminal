@@ -7,6 +7,7 @@ import 'package:macos_ui/macos_ui.dart';
 import 'package:provider/provider.dart' as app_provider;
 
 import 'app.dart';
+import 'app_log.dart';
 import 'app_state.dart';
 import 'window_navigator.dart';
 import 'ui/pages/launcher_page.dart';
@@ -23,11 +24,13 @@ WindowSpec launcherWindowSpec(AppState appState) => WindowSpec(
       child: SexyTerminalApp(
         onContextReady: (context) =>
             navigator.registerContext('launcher', context),
-        home: LauncherPage(
-          onOpenWorkspace: (id) {
-            appState.activateWorkspace(id);
-            navigator.open(workspaceWindowSpec(appState, id));
-          },
+        home: _WindowShortcuts(
+          child: LauncherPage(
+            onOpenWorkspace: (id) {
+              appState.activateWorkspace(id);
+              navigator.open(workspaceWindowSpec(appState, id));
+            },
+          ),
         ),
       ),
     );
@@ -58,20 +61,57 @@ WindowSpec workspaceWindowSpec(AppState appState, String workspaceId) {
               workspaceId: workspaceId,
             ),
             dispose: (_, runtime) {
+              appLog(
+                AppLogTag.workspace,
+                'Scheduling next-frame disposal for workspace runtime '
+                '${runtime.workspaceId}.',
+              );
               WidgetsBinding.instance.addPostFrameCallback((_) {
+                appLog(
+                  AppLogTag.workspace,
+                  'Running scheduled workspace runtime disposal for '
+                  '${runtime.workspaceId}.',
+                );
                 runtime.dispose();
               });
             },
             child: SexyTerminalApp(
               onContextReady: (context) =>
                   navigator.registerContext('workspace:$workspaceId', context),
-              home: TerminalWorkspacePage(workspaceId: workspaceId),
+              home: _WindowShortcuts(
+                child: TerminalWorkspacePage(workspaceId: workspaceId),
+              ),
             ),
           ),
         ),
       );
     },
   );
+}
+
+class _WindowShortcuts extends StatelessWidget {
+  const _WindowShortcuts({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final navigator = WindowNavigator.of(context);
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyN, meta: true):
+            navigator.openDefault,
+        const SingleActivator(LogicalKeyboardKey.keyM, meta: true): () =>
+            navigator.minimizeCurrent(context),
+        const SingleActivator(LogicalKeyboardKey.keyW, meta: true): () =>
+            navigator.closeCurrent(context),
+        const SingleActivator(LogicalKeyboardKey.keyQ, meta: true): () async {
+          await navigator.requestQuit(context);
+        },
+      },
+      child: child,
+    );
+  }
 }
 
 Future<void> requestApplicationQuit(

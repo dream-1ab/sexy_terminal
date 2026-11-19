@@ -208,7 +208,6 @@ class _WindowNavigatorState extends State<WindowNavigator> {
           menus: [
             PlatformMenuItem(
               label: 'Quit Sexy terminal',
-              shortcut: SingleActivator(LogicalKeyboardKey.keyQ, meta: true),
               onSelected: _requestQuitFromMenu,
             ),
           ],
@@ -218,19 +217,10 @@ class _WindowNavigatorState extends State<WindowNavigator> {
           menus: [
             PlatformMenuItem(
               label: 'New Window',
-              shortcut: SingleActivator(LogicalKeyboardKey.keyN, meta: true),
               onSelected: controller.openDefault,
             ),
-            PlatformMenuItem(
-              label: 'Minimize',
-              shortcut: SingleActivator(LogicalKeyboardKey.keyM, meta: true),
-              onSelected: _minimizeActive,
-            ),
-            PlatformMenuItem(
-              label: 'Close Window',
-              shortcut: SingleActivator(LogicalKeyboardKey.keyW, meta: true),
-              onSelected: _closeActive,
-            ),
+            PlatformMenuItem(label: 'Minimize', onSelected: _minimizeActive),
+            PlatformMenuItem(label: 'Close Window', onSelected: _closeActive),
           ],
         ),
       ],

@@ -8,9 +8,9 @@ import '../components/terminal_theme_gallery.dart';
 import 'profile_home_page.dart';
 
 class LauncherPage extends StatefulWidget {
-  const LauncherPage({super.key, this.onOpenWorkspace});
+  const LauncherPage({super.key, required this.onOpenWorkspace});
 
-  final ValueChanged<String>? onOpenWorkspace;
+  final ValueChanged<String> onOpenWorkspace;
 
   @override
   State<LauncherPage> createState() => _LauncherPageState();

@@ -1,19 +1,16 @@
-import 'package:dock_panel/dock_panel.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:macos_ui/macos_ui.dart';
-import 'package:provider/provider.dart' as app_provider;
+import 'package:provider/provider.dart';
 
 import '../../app_state.dart';
 import '../../profile_models.dart';
 import '../components/app_context_menu.dart';
 import 'profile_editor_page.dart';
-import 'terminal_workspace_page.dart';
 
 class ProfileHomePage extends StatefulWidget {
-  const ProfileHomePage({super.key, this.onOpenWorkspace});
+  const ProfileHomePage({super.key, required this.onOpenWorkspace});
 
-  final ValueChanged<String>? onOpenWorkspace;
+  final ValueChanged<String> onOpenWorkspace;
 
   @override
   State<ProfileHomePage> createState() => _ProfileHomePageState();
@@ -36,26 +33,7 @@ class _ProfileHomePageState extends State<ProfileHomePage> {
   }
 
   void _openProfile(WorkspaceProfile profile) {
-    final openWorkspace = widget.onOpenWorkspace;
-    if (openWorkspace != null) {
-      openWorkspace(profile.id);
-      return;
-    }
-    ProviderScope.containerOf(
-      context,
-      listen: false,
-    ).read(dockManagerProvider.notifier).clear();
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => app_provider.ChangeNotifierProvider(
-          create: (_) => WorkspaceRuntimeState(
-            appState: context.read<AppState>(),
-            workspaceId: profile.id,
-          ),
-          child: TerminalWorkspacePage(workspaceId: profile.id),
-        ),
-      ),
-    );
+    widget.onOpenWorkspace(profile.id);
   }
 
   Future<void> _edit(WorkspaceProfile profile) async {
@@ -88,21 +66,6 @@ class _ProfileHomePageState extends State<ProfileHomePage> {
     );
   }
 
-  Future<void> _rename(WorkspaceProfile profile) async {
-    final controller = TextEditingController(text: profile.name);
-    final value = await showMacosSheet<String>(
-      context: context,
-      barrierDismissible: true,
-      builder: (_) =>
-          _SingleFieldSheet(title: 'Rename profile', controller: controller),
-    );
-    controller.dispose();
-    if (value == null || value.trim().isEmpty) return;
-    profile.name = value.trim();
-    await context.read<AppState>().saveProfile(profile);
-    if (mounted) setState(() {});
-  }
-
   Future<void> _delete(WorkspaceProfile profile) async {
     final confirmed = await showMacosSheet<bool>(
       context: context,
@@ -117,11 +80,6 @@ class _ProfileHomePageState extends State<ProfileHomePage> {
     await appState.deleteProfile(profile.id);
     appState.removeProfile(profile);
     if (mounted) setState(() {});
-  }
-
-  @override
-  void dispose() {
-    super.dispose();
   }
 
   @override
@@ -341,49 +299,6 @@ class _EmptyWorkspaceState extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    ),
-  );
-}
-
-class _SingleFieldSheet extends StatelessWidget {
-  const _SingleFieldSheet({required this.title, required this.controller});
-  final String title;
-  final TextEditingController controller;
-
-  @override
-  Widget build(BuildContext context) => MacosSheet(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(title, style: MacosTheme.of(context).typography.title2),
-          const SizedBox(height: 16),
-          MacosTextField(
-            controller: controller,
-            autofocus: true,
-            placeholder: 'Profile name',
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              PushButton(
-                controlSize: ControlSize.regular,
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
-              ),
-              const SizedBox(width: 8),
-              PushButton(
-                controlSize: ControlSize.regular,
-                onPressed: () => Navigator.pop(context, controller.text),
-                child: const Text('Save'),
-              ),
-            ],
-          ),
-        ],
       ),
     ),
   );
