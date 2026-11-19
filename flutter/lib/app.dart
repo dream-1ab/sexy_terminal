@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:macos_ui/macos_ui.dart';
 
 import 'theme_presets.dart';
@@ -24,8 +28,49 @@ class SexyTerminalApp extends StatelessWidget {
         dividerColor: const Color.fromRGBO(43, 43, 43, 1),
         primaryColor: const Color.fromARGB(255, 75, 159, 255),
       ),
-      home: const _MainNavigation(),
+      home: PlatformMenuBar(
+        menus: [
+          PlatformMenu(
+            label: 'Window',
+            menus: [
+              PlatformMenuItem(
+                label: 'New Window',
+                shortcut: SingleActivator(LogicalKeyboardKey.keyN, meta: true),
+                onSelected: _launchNewWindow,
+              ),
+              PlatformMenuItem(
+                label: 'Close Window',
+                shortcut: SingleActivator(LogicalKeyboardKey.keyW, meta: true),
+                onSelected: _closeCurrentWindow,
+              ),
+            ],
+          ),
+          PlatformMenu(
+            label: 'Sexy terminal',
+            menus: [
+              const PlatformProvidedMenuItem(
+                type: PlatformProvidedMenuItemType.quit,
+              ),
+            ],
+          ),
+        ],
+        child: const _MainNavigation(),
+      ),
     );
+  }
+
+  static void _launchNewWindow() {
+    if (!Platform.isMacOS) return;
+    final appBundle = File(Platform.resolvedExecutable)
+        .parent
+        .parent
+        .parent
+        .path;
+    unawaited(Process.run('/usr/bin/open', ['-n', appBundle]));
+  }
+
+  static void _closeCurrentWindow() {
+    if (Platform.isMacOS) exit(0);
   }
 }
 
