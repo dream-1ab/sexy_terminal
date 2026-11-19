@@ -51,10 +51,7 @@ class DockArea extends ConsumerWidget {
 
     return DockTheme(
       data: themeData,
-      child: ColoredBox(
-        color: themeData.backgroundColor,
-        child: child,
-      ),
+      child: child,
     );
   }
 

@@ -232,7 +232,10 @@ class _ReorderableDockTabState extends State<_ReorderableDockTab> {
       child: GestureDetector(
         onTap: widget.onTap,
         child: widget.isActive
-            ? ClipPath(clipper: _ActiveTabClipper(), child: fullHeightTab)
+            ? ClipPath(
+                clipper: _ActiveTabClipper(theme.borderRadius.topLeft.x),
+                child: fullHeightTab,
+              )
             : fullHeightTab,
       ),
     );
@@ -321,9 +324,13 @@ class _ReorderableDockTabState extends State<_ReorderableDockTab> {
 }
 
 class _ActiveTabClipper extends CustomClipper<Path> {
+  _ActiveTabClipper(this.radius);
+
+  final double radius;
+
   @override
   Path getClip(Size size) {
-    const radius = 8.0;
+    // const radius = 8.0;
     final path = Path();
     path.moveTo(radius, 0);
     path.lineTo(size.width - radius * 2, 0);
@@ -365,7 +372,8 @@ class _ActiveTabClipper extends CustomClipper<Path> {
   }
 
   @override
-  bool shouldReclip(covariant _ActiveTabClipper oldClipper) => false;
+  bool shouldReclip(covariant _ActiveTabClipper oldClipper) =>
+      oldClipper.radius != radius;
 }
 
 /// A thin vertical indicator shown during tab reordering.

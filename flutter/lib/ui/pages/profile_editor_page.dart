@@ -3,7 +3,12 @@ import 'package:macos_ui/macos_ui.dart';
 
 import '../../app_state.dart';
 import '../../profile_models.dart';
+import '../../theme_presets.dart';
+import '../components/app_context_menu.dart';
 import '../components/session_editor_sheet.dart';
+import '../components/session_icons.dart';
+import '../components/session_theme_dialog.dart';
+import '../components/terminal_theme_gallery.dart';
 
 class ProfileEditorPage extends StatefulWidget {
   const ProfileEditorPage({super.key, required this.profile});
@@ -60,6 +65,65 @@ class _ProfileEditorPageState extends State<ProfileEditorPage> {
     }
   }
 
+  Future<void> _editSessionTheme(SessionProfile session) async {
+    final result = await showSessionThemeDialog(context, session);
+    if (result == null || !mounted) return;
+    setState(() => session.terminalTheme = result.custom ? result.theme : null);
+  }
+
+  Future<void> _editWorkspaceTheme() async {
+    final selected = await showTerminalThemeGallery(
+      context,
+      presets: ThemePresetStore.instance.presets,
+    );
+    if (selected == null || !mounted) return;
+    setState(() => widget.profile.terminalTheme = selected.theme);
+  }
+
+  void _duplicateSession(SessionProfile session) {
+    final duplicate = SessionProfile(
+      id: '${widget.profile.id}-session-${DateTime.now().microsecondsSinceEpoch}',
+      name: '${session.name} copy',
+      color: session.color,
+      icon: session.icon,
+      appearance: session.appearance,
+      terminalTheme: session.terminalTheme,
+      shell: session.shell,
+      workingDirectory: session.workingDirectory,
+      startupCommands: List.of(session.startupCommands),
+    );
+    setState(() => widget.profile.sessions.add(duplicate));
+  }
+
+  void _removeSession(SessionProfile session) {
+    setState(() => widget.profile.sessions.remove(session));
+  }
+
+  void _showSessionMenu(SessionProfile session, Offset globalPosition) {
+    showAppContextMenu(
+      context,
+      globalPosition: globalPosition,
+      actions: [
+        AppContextMenuAction(
+          label: 'Edit',
+          onSelected: () => _editSession(session),
+        ),
+        AppContextMenuAction(
+          label: 'Theme…',
+          onSelected: () => _editSessionTheme(session),
+        ),
+        AppContextMenuAction(
+          label: 'Duplicate',
+          onSelected: () => _duplicateSession(session),
+        ),
+        AppContextMenuAction(
+          label: 'Remove',
+          onSelected: () => _removeSession(session),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = MacosTheme.of(context);
@@ -108,6 +172,32 @@ class _ProfileEditorPageState extends State<ProfileEditorPage> {
             controller: _nameController,
             placeholder: 'Profile name',
           ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  widget.profile.terminalTheme == null
+                      ? 'Terminal theme: use global'
+                      : 'Terminal theme: workspace override',
+                ),
+              ),
+              PushButton(
+                controlSize: ControlSize.regular,
+                onPressed: _editWorkspaceTheme,
+                child: const Text('Choose theme…'),
+              ),
+              if (widget.profile.terminalTheme != null) ...[
+                const SizedBox(width: 8),
+                PushButton(
+                  controlSize: ControlSize.regular,
+                  onPressed: () =>
+                      setState(() => widget.profile.terminalTheme = null),
+                  child: const Text('Use global'),
+                ),
+              ],
+            ],
+          ),
           const SizedBox(height: 28),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -132,236 +222,49 @@ class _ProfileEditorPageState extends State<ProfileEditorPage> {
           ),
           const SizedBox(height: 8),
           for (final session in widget.profile.sessions)
-            Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: theme.canvasColor,
-                border: Border.all(color: theme.dividerColor),
-                borderRadius: BorderRadius.circular(5),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.terminal, color: session.color),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          session.name,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          '${session.shell ?? 'Default shell'}  |  ${session.workingDirectory ?? 'Current directory'}',
-                          style: theme.typography.subheadline,
-                        ),
-                      ],
+            GestureDetector(
+              onSecondaryTapDown: (details) =>
+                  _showSessionMenu(session, details.globalPosition),
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.canvasColor,
+                  border: Border.all(color: theme.dividerColor),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: Row(
+                  children: [
+                    Icon(sessionIcon(session.icon), color: session.color),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            session.name,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${session.shell ?? 'Default shell'}  |  ${session.workingDirectory ?? 'Current directory'}',
+                            style: theme.typography.subheadline,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      PushButton(
-                        controlSize: ControlSize.regular,
-                        onPressed: () => _editSession(session),
-                        child: const Text('Edit'),
-                      ),
-                      const SizedBox(width: 6),
-                      PushButton(
-                        controlSize: ControlSize.regular,
-                        onPressed: () => setState(
-                          () => widget.profile.sessions.remove(session),
-                        ),
-                        child: const Text('Remove'),
-                      ),
-                    ],
-                  ),
-                ],
+                    ContextMenuButton(
+                      onPressedAt: (position) =>
+                          _showSessionMenu(session, position),
+                    ),
+                  ],
+                ),
               ),
             ),
         ],
-      ),
-    );
-  }
-}
-
-class _SessionEditorDialog extends StatefulWidget {
-  const _SessionEditorDialog({required this.session});
-
-  final SessionProfile session;
-
-  @override
-  State<_SessionEditorDialog> createState() => _SessionEditorDialogState();
-}
-
-class _SessionEditorDialogState extends State<_SessionEditorDialog> {
-  late final TextEditingController _name;
-  late final TextEditingController _shell;
-  late final TextEditingController _directory;
-  late final TextEditingController _commands;
-  var _color = const Color(0xff00b0ff);
-
-  @override
-  void initState() {
-    super.initState();
-    final session = widget.session;
-    _name = TextEditingController(text: session.name);
-    _shell = TextEditingController(text: session.shell ?? '');
-    _directory = TextEditingController(text: session.workingDirectory ?? '');
-    _commands = TextEditingController(text: session.startupCommands.join('\n'));
-    _color = session.color;
-  }
-
-  @override
-  void dispose() {
-    _name.dispose();
-    _shell.dispose();
-    _directory.dispose();
-    _commands.dispose();
-    super.dispose();
-  }
-
-  void _save() {
-    final session = widget.session;
-    session.name = _name.text.trim().isEmpty ? 'Terminal' : _name.text.trim();
-    session.shell = _shell.text.trim().isEmpty ? null : _shell.text.trim();
-    session.workingDirectory = _directory.text.trim().isEmpty
-        ? null
-        : _directory.text.trim();
-    session.startupCommands = _commands.text
-        .split('\n')
-        .map((line) => line.trim())
-        .where((line) => line.isNotEmpty)
-        .toList();
-    session.color = _color;
-    Navigator.pop(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = MacosTheme.of(context);
-    const colors = [
-      Color(0xff00b0ff), // Electric blue
-      Color(0xff00e5ff), // Cyan
-      Color(0xff00e676), // Green
-      Color(0xff76ff03), // Lime
-      Color(0xffffea00), // Yellow
-      Color(0xffff9100), // Orange
-      Color(0xffff3d00), // Coral
-      Color(0xffff1744), // Red
-      Color(0xffff4081), // Pink
-      Color(0xffd500f9), // Magenta
-      Color(0xff651fff), // Purple
-      Color(0xff3d5afe), // Indigo
-    ];
-    return MacosSheet(
-      child: SizedBox(
-        width: 520,
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                MacosTextField(
-                  controller: _name,
-                  placeholder: 'Session name',
-                  style: theme.typography.body,
-                  placeholderStyle: theme.typography.body.copyWith(
-                    color: MacosColors.placeholderTextColor,
-                  ),
-                ),
-                MacosTextField(
-                  controller: _shell,
-                  placeholder: 'Shell executable (default shell)',
-                  style: theme.typography.body,
-                  placeholderStyle: theme.typography.body.copyWith(
-                    color: MacosColors.placeholderTextColor,
-                  ),
-                ),
-                MacosTextField(
-                  controller: _directory,
-                  placeholder: 'Working directory (current directory)',
-                  style: theme.typography.body,
-                  placeholderStyle: theme.typography.body.copyWith(
-                    color: MacosColors.placeholderTextColor,
-                  ),
-                ),
-                MacosTextField(
-                  controller: _commands,
-                  minLines: 4,
-                  maxLines: 8,
-                  placeholder: 'Startup commands (one command per line)',
-                  style: theme.typography.body,
-                  placeholderStyle: theme.typography.body.copyWith(
-                    color: MacosColors.placeholderTextColor,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Session color',
-                    style: MacosTheme.of(context).typography.headline,
-                  ),
-                ),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    for (final color in colors)
-                      GestureDetector(
-                        onTap: () => setState(() => _color = color),
-                        child: MouseRegion(
-                          cursor: SystemMouseCursors.click,
-                          child: Container(
-                            width: 30,
-                            height: 30,
-                            decoration: BoxDecoration(
-                              color: color,
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(
-                                color: _color.value == color.value
-                                    ? Colors.white
-                                    : Colors.transparent,
-                                width: 2,
-                              ),
-                            ),
-                            child: _color.value == color.value
-                                ? const Icon(
-                                    Icons.check,
-                                    size: 17,
-                                    color: Colors.white,
-                                  )
-                                : null,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    PushButton(
-                      controlSize: ControlSize.regular,
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Cancel'),
-                    ),
-                    const SizedBox(width: 8),
-                    PushButton(
-                      controlSize: ControlSize.regular,
-                      onPressed: _save,
-                      child: const Text('Save'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }

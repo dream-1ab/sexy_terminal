@@ -109,7 +109,7 @@ class _DockGroupViewState extends ConsumerState<DockGroupView> {
                       ),
                       SizedBox(
                         height: contentH,
-                        child: Container(
+                        child: ClipRRect(borderRadius: DockTheme.of(context).borderRadius, child: Container(
                           color: theme.backgroundColor,
                           child: group.activePanel != null
                               ? KeyedSubtree(
@@ -117,7 +117,7 @@ class _DockGroupViewState extends ConsumerState<DockGroupView> {
                                   child: group.activePanel!.builder(context),
                                 )
                               : const SizedBox.expand(),
-                        ),
+                        ),),
                       ),
                     ],
                   );

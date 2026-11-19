@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'app_log.dart';
 import 'profile_models.dart';
 
 class ProfileStore {
@@ -24,17 +24,31 @@ class ProfileStore {
       try {
         final json = jsonDecode(await entity.readAsString());
         profiles.add(WorkspaceProfile.fromJson(json as Map<String, dynamic>));
-      } on FormatException {
+      } on FormatException catch (error, stackTrace) {
+        appLog(
+          AppLogTag.error,
+          'Ignored malformed workspace profile file: ${entity.path}',
+          error: error,
+          stackTrace: stackTrace,
+        );
         // Ignore malformed profile files and keep loading usable profiles.
       }
     }
     profiles.sort(
       (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
     );
+    appLog(
+      AppLogTag.profileStore,
+      'Loaded ${profiles.length} workspace profile(s).',
+    );
     return profiles;
   }
 
   Future<void> saveProfile(WorkspaceProfile profile) async {
+    appLog(
+      AppLogTag.profileStore,
+      'Save requested for "${profile.name}" (${profile.id}); debouncing 500 ms.',
+    );
     final pending = _pendingSaves.putIfAbsent(
       profile.id,
       () => _PendingProfileSave(profile),
@@ -46,6 +60,13 @@ class ProfileStore {
         await _writeProfile(pending.profile);
         pending.completer.complete();
       } catch (error, stackTrace) {
+        appLog(
+          AppLogTag.error,
+          'Failed to store workspace profile "${pending.profile.name}" '
+          '(${pending.profile.id}).',
+          error: error,
+          stackTrace: stackTrace,
+        );
         pending.completer.completeError(error, stackTrace);
       } finally {
         _pendingSaves.remove(profile.id);
@@ -60,16 +81,18 @@ class ProfileStore {
     await file.writeAsString(
       const JsonEncoder.withIndent('  ').convert(profile.toJson()),
     );
-    if (kDebugMode) {
-      debugPrint(
-        '[ProfileStore] Stored workspace profile "${profile.name}" '
-        '(${profile.id}).',
-      );
-    }
+    appLog(
+      AppLogTag.profileStore,
+      'Stored workspace profile "${profile.name}" (${profile.id}).',
+    );
   }
 
   /// Immediately writes a profile and cancels any pending debounced write.
   Future<void> flushProfile(WorkspaceProfile profile) async {
+    appLog(
+      AppLogTag.profileStore,
+      'Flushing workspace profile "${profile.name}" (${profile.id}).',
+    );
     final pending = _pendingSaves.remove(profile.id);
     pending?.timer?.cancel();
     try {
@@ -78,6 +101,12 @@ class ProfileStore {
         pending.completer.complete();
       }
     } catch (error, stackTrace) {
+      appLog(
+        AppLogTag.error,
+        'Failed to flush workspace profile "${profile.name}" (${profile.id}).',
+        error: error,
+        stackTrace: stackTrace,
+      );
       if (pending != null && !pending.completer.isCompleted) {
         pending.completer.completeError(error, stackTrace);
       }
@@ -86,12 +115,24 @@ class ProfileStore {
   }
 
   Future<void> deleteProfile(String id) async {
+    appLog(AppLogTag.profileStore, 'Deleting workspace profile ($id).');
     final pending = _pendingSaves.remove(id);
     pending?.timer?.cancel();
     pending?.completer.complete();
     final directory = await _profilesDirectory();
     final file = File('${directory.path}/$id.json');
-    if (await file.exists()) await file.delete();
+    try {
+      if (await file.exists()) await file.delete();
+      appLog(AppLogTag.profileStore, 'Deleted workspace profile ($id).');
+    } catch (error, stackTrace) {
+      appLog(
+        AppLogTag.error,
+        'Failed to delete workspace profile ($id).',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      rethrow;
+    }
   }
 }
 

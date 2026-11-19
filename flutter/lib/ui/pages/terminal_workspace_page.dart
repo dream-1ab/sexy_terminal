@@ -5,9 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:macos_ui/macos_ui.dart';
 
+import '../../app_log.dart';
 import '../../app_state.dart';
 import '../../profile_models.dart';
+import '../../theme_presets.dart';
 import '../components/session_editor_sheet.dart';
+import '../components/session_icons.dart';
+import '../components/session_theme_dialog.dart';
 import 'terminal_pane.dart';
 
 class TerminalWorkspacePage extends ConsumerStatefulWidget {
@@ -43,6 +47,12 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
 
   void _initializeWorkspace() {
     final savedLayout = widget.profile.dockLayout;
+    appLog(
+      AppLogTag.workspace,
+      'Initializing workspace "${widget.profile.name}" (${widget.profile.id}) '
+      'with ${widget.profile.sessions.length} terminal session(s); '
+      'saved layout: ${savedLayout != null}.',
+    );
     final panels = <DockPanel>[_welcomePanel()];
     for (final definition in widget.profile.sessions) {
       panels.add(_terminalPanel(definition));
@@ -53,6 +63,10 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
     }
     if (savedLayout != null) {
       _dockManager.restoreLayout(savedLayout);
+      appLog(
+        AppLogTag.dock,
+        'Restored saved dock layout for ${widget.profile.id}.',
+      );
       for (final panel in panels) {
         if (!_dockManager.containsPanel(panel.id)) {
           _dockManager.addPanel(panel);
@@ -65,6 +79,7 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
     }
     _dockManager.setLayoutChangeListener(_saveLayout);
     _saveLayout(_dockManager.exportLayout());
+    appLog(AppLogTag.workspace, 'Workspace ${widget.profile.id} initialized.');
   }
 
   DockPanel _terminalPanel(
@@ -73,11 +88,28 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
   }) {
     final id = definition.id;
     final session =
-        existingSession ?? _appState.createSession(id, definition: definition);
+        existingSession ??
+        _appState.createSession(
+          id,
+          definition: definition,
+          resolvedTheme: ThemePresetStore.instance.resolveTheme(
+            sessionTheme: definition.terminalTheme,
+            workspaceTheme: widget.profile.terminalTheme,
+          ),
+          resolvedAppearance: ThemePresetStore.instance.resolveAppearance(
+            sessionAppearance: definition.appearance,
+            workspaceAppearance: widget.profile.appearance,
+            sessionTheme: definition.terminalTheme,
+            workspaceTheme: widget.profile.terminalTheme,
+          ),
+          followsGlobalTheme:
+              definition.terminalTheme == null &&
+              widget.profile.terminalTheme == null,
+        );
     return DockPanel(
       id: id,
       title: definition.name,
-      icon: Icons.terminal,
+      icon: sessionIcon(definition.icon),
       closable: true,
       onClose: () => _closeTerminal(id),
       builder: (_) => TerminalPane(key: ValueKey(id), session: session),
@@ -93,6 +125,10 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
     widget.profile.sessions.add(definition);
     final panel = _terminalPanel(definition);
     _dockManager.addPanel(panel);
+    appLog(
+      AppLogTag.dock,
+      'Added terminal tab ${definition.id} to ${widget.profile.id}.',
+    );
     await _appState.profileStore.saveProfile(widget.profile);
   }
 
@@ -108,14 +144,25 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
       (session) => session.id == panelId,
     );
     widget.profile.sessions[index] = updated;
+    _appState.sessions[panelId]?.updateTheme(
+      updated.terminalTheme ?? ThemePresetStore.instance.globalTheme,
+    );
     _dockManager.updatePanel(
       _terminalPanel(updated, existingSession: _appState.sessions[panelId]),
+    );
+    appLog(
+      AppLogTag.dock,
+      'Updated terminal tab $panelId in ${widget.profile.id}.',
     );
     await _appState.profileStore.saveProfile(widget.profile);
   }
 
   Future<void> _saveLayout(Map<String, dynamic>? layout) async {
     widget.profile.dockLayout = layout;
+    appLog(
+      AppLogTag.dock,
+      'Dock layout changed for ${widget.profile.id}; scheduling profile save.',
+    );
     await _appState.profileStore.saveProfile(widget.profile);
   }
 
@@ -124,11 +171,47 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
         .where((session) => session.id == panelId)
         .firstOrNull;
     if (definition == null) return;
+    appLog(
+      AppLogTag.dock,
+      'Reloading terminal tab $panelId in ${widget.profile.id}.',
+    );
     _appState.sessions.remove(panelId)?.dispose();
     _dockManager.updatePanel(_terminalPanel(definition));
   }
 
+  Future<void> _editTerminalTheme(String panelId) async {
+    final definition = widget.profile.sessions
+        .where((session) => session.id == panelId)
+        .firstOrNull;
+    if (definition == null) return;
+    final runtime = _appState.sessions[panelId];
+    final previousTheme = runtime?.theme.value;
+    final result = await showSessionThemeDialog(
+      context,
+      definition,
+      initialTheme: previousTheme,
+      onPreviewTheme: (theme) {
+        runtime?.updateTheme(
+          theme ??
+              ThemePresetStore.instance.resolveTheme(
+                workspaceTheme: widget.profile.terminalTheme,
+              ),
+        );
+      },
+    );
+    if (result == null) {
+      if (previousTheme != null) runtime?.updateTheme(previousTheme);
+      return;
+    }
+    definition.terminalTheme = result.custom ? result.theme : null;
+    await _appState.profileStore.saveProfile(widget.profile);
+  }
+
   Future<void> _closeTerminal(String panelId) async {
+    appLog(
+      AppLogTag.dock,
+      'Closing terminal tab $panelId in ${widget.profile.id}.',
+    );
     _appState.sessions.remove(panelId)?.dispose();
     widget.profile.sessions.removeWhere((session) => session.id == panelId);
     _dockManager.removePanel(panelId);
@@ -136,6 +219,7 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
   }
 
   void _showTabMenu(String panelId, Offset globalPosition) {
+    appLog(AppLogTag.dock, 'Opened tab actions for $panelId.');
     _tabMenu?.remove();
     final overlay = Overlay.of(context);
     final localPosition = (overlay.context.findRenderObject() as RenderBox)
@@ -160,6 +244,10 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
               onReload: () {
                 _dismissTabMenu();
                 _reloadTerminal(panelId);
+              },
+              onTheme: () {
+                _dismissTabMenu();
+                _editTerminalTheme(panelId);
               },
               onClose: () {
                 _dismissTabMenu();
@@ -190,6 +278,7 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
 
   @override
   void dispose() {
+    appLog(AppLogTag.workspace, 'Disposing workspace ${widget.profile.id}.');
     _dockManager.setLayoutChangeListener(null);
     _dismissTabMenu();
     if (widget.initialize) {
@@ -202,17 +291,19 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: MacosTheme.of(context).canvasColor,
       body: DockTheme(
         data: DockThemeData(
           backgroundColor: const Color.fromRGBO(18, 19, 20, 1),
-          tabBarColor: const Color.fromRGBO(43, 43, 43, 1),
+          tabBarColor: MacosTheme.of(context).canvasColor,
           activeTabColor: const Color.fromRGBO(18, 19, 20, 1),
           inactiveTabColor: Colors.transparent,
-          dividerColor: Colors.transparent,
+          dividerColor: MacosTheme.of(context).dividerColor,
           tabTextColor: const Color(0xffb8c0cc),
           activeTabTextColor: Colors.white,
-          dividerThickness: 4,
+          dividerThickness: 8,
           tabHeight: 34,
+          borderRadius: BorderRadius.circular(8),
           tabShape: DockTabShape.pill,
           tabPadding: const EdgeInsets.only(left: 14, top: 0, right: 14),
           headerContentBuilder:
@@ -238,7 +329,10 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
                 );
               },
         ),
-        child: const DockArea(),
+        child: Padding(
+          padding: EdgeInsetsGeometry.all(8),
+          child: const DockArea(),
+        ),
       ),
     );
   }
@@ -319,10 +413,12 @@ class _TabMenuButton extends StatelessWidget {
 class _TabContextMenu extends StatelessWidget {
   const _TabContextMenu({
     required this.onEdit,
+    required this.onTheme,
     required this.onReload,
     required this.onClose,
   });
   final VoidCallback onEdit;
+  final VoidCallback onTheme;
   final VoidCallback onReload;
   final VoidCallback onClose;
 
@@ -341,6 +437,7 @@ class _TabContextMenu extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           _TabContextMenuItem(label: 'Edit', onTap: onEdit),
+          _TabContextMenuItem(label: 'Theme…', onTap: onTheme),
           _TabContextMenuItem(label: 'Reload', onTap: onReload),
           _TabContextMenuItem(label: 'Close', onTap: onClose),
         ],

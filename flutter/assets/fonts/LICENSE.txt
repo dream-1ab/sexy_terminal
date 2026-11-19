@@ -1,0 +1,8 @@
+Ubuntu Font Licence Version 1.0
+
+The Ubuntu Font Family is distributed under the Ubuntu Font Licence Version 1.0.
+The complete licence text is available at:
+https://ubuntu.com/legal/font-licence
+
+These font files are bundled with Sexy Terminal for rendering terminal text
+consistently on systems where Ubuntu Mono is not installed.

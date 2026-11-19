@@ -5,6 +5,7 @@ import 'package:macos_ui/macos_ui.dart';
 
 import '../../app_state.dart';
 import '../../profile_models.dart';
+import '../components/app_context_menu.dart';
 import 'profile_editor_page.dart';
 import 'terminal_workspace_page.dart';
 
@@ -54,6 +55,29 @@ class _ProfileHomePageState extends State<ProfileHomePage> {
       MaterialPageRoute(builder: (_) => ProfileEditorPage(profile: profile)),
     );
     if (mounted) setState(() {});
+  }
+
+  Future<void> _duplicate(WorkspaceProfile profile) async {
+    await _appState.duplicateProfile(profile);
+    if (mounted) setState(() {});
+  }
+
+  void _showProfileMenu(WorkspaceProfile profile, Offset globalPosition) {
+    showAppContextMenu(
+      context,
+      globalPosition: globalPosition,
+      actions: [
+        AppContextMenuAction(label: 'Edit', onSelected: () => _edit(profile)),
+        AppContextMenuAction(
+          label: 'Duplicate',
+          onSelected: () => _duplicate(profile),
+        ),
+        AppContextMenuAction(
+          label: 'Delete',
+          onSelected: () => _delete(profile),
+        ),
+      ],
+    );
   }
 
   Future<void> _rename(WorkspaceProfile profile) async {
@@ -120,7 +144,8 @@ class _ProfileHomePageState extends State<ProfileHomePage> {
                     ? const Color(0xff8aa4c2)
                     : profile.sessions.first.color;
                 return GestureDetector(
-                  onSecondaryTap: () => _edit(profile),
+                  onSecondaryTapDown: (details) =>
+                      _showProfileMenu(profile, details.globalPosition),
                   child: MouseRegion(
                     cursor: SystemMouseCursors.click,
                     child: GestureDetector(
@@ -160,18 +185,9 @@ class _ProfileHomePageState extends State<ProfileHomePage> {
                                 ],
                               ),
                             ),
-                            PushButton(
-                              controlSize: ControlSize.regular,
-                              padding: EdgeInsets.zero,
-                              onPressed: () => _edit(profile),
-                              child: const Icon(Icons.edit_outlined, size: 16),
-                            ),
-                            const SizedBox(width: 8),
-                            PushButton(
-                              controlSize: ControlSize.regular,
-                              padding: EdgeInsets.zero,
-                              onPressed: () => _delete(profile),
-                              child: const Icon(Icons.delete_outline, size: 16),
+                            ContextMenuButton(
+                              onPressedAt: (position) =>
+                                  _showProfileMenu(profile, position),
                             ),
                           ],
                         ),
