@@ -14,6 +14,8 @@ import 'terminal_appearance.dart';
 
 class TerminalSession {
   TerminalSession({
+    required ThemePresetStore themeStore,
+    Map<String, String>? environment,
     SessionProfile? profile,
     TerminalTheme? resolvedTheme,
     bool followsGlobalTheme = true,
@@ -24,7 +26,7 @@ class TerminalSession {
          (resolvedAppearance?.theme ??
              resolvedTheme ??
              profile?.terminalTheme ??
-             ThemePresetStore.instance.globalTheme),
+             themeStore.globalTheme),
        ),
        appearance = ValueNotifier(
          resolvedAppearance ??
@@ -32,11 +34,12 @@ class TerminalSession {
                theme:
                    resolvedTheme ??
                    profile?.terminalTheme ??
-                   ThemePresetStore.instance.globalTheme,
+                   themeStore.globalTheme,
              ),
-       ) {
+       ),
+       _themeStore = themeStore {
     if (followsGlobalTheme) {
-      ThemePresetStore.instance.addListener(_updateFromGlobalTheme);
+      _themeStore.addListener(_updateFromGlobalTheme);
     }
     final shell =
         profile?.shell ??
@@ -45,7 +48,8 @@ class TerminalSession {
     try {
       pty = Pty.start(
         shell,
-        workingDirectory: profile?.workingDirectory,
+        environment: environment,
+        workingDirectory: profile?.workingDirectory ?? environment?['HOME'],
         columns: terminal.viewWidth,
         rows: terminal.viewHeight,
       );
@@ -109,6 +113,7 @@ class TerminalSession {
   final TerminalController controller;
   final ValueNotifier<TerminalTheme> theme;
   final ValueNotifier<TerminalAppearanceProfile> appearance;
+  final ThemePresetStore _themeStore;
   late final Pty pty;
   late final StreamSubscription<String> _outputSubscription;
   var _disposed = false;
@@ -124,8 +129,7 @@ class TerminalSession {
   }
 
   void _updateFromGlobalTheme() {
-    if (!_disposed)
-      updateAppearance(ThemePresetStore.instance.globalAppearance);
+    if (!_disposed) updateAppearance(_themeStore.globalAppearance);
   }
 
   Future<void> _runStartupCommands(
@@ -169,39 +173,140 @@ class TerminalSession {
     unawaited(_outputSubscription.cancel());
     pty.kill();
     controller.dispose();
-    ThemePresetStore.instance.removeListener(_updateFromGlobalTheme);
+    _themeStore.removeListener(_updateFromGlobalTheme);
     theme.dispose();
     appearance.dispose();
   }
 }
 
-class AppState {
-  final profileStore = ProfileStore();
-  List<WorkspaceProfile> profiles = [];
-  WorkspaceProfile? activeProfile;
-  int nextTerminalNumber = 1;
-  final sessions = <String, TerminalSession>{};
+class AppState extends ChangeNotifier {
+  AppState({ProfileStore? profileStore, ThemePresetStore? themeStore})
+    : _profileStore = profileStore ?? ProfileStore(),
+      _themeStore = themeStore ?? ThemePresetStore.instance;
 
-  TerminalSession createSession(
-    String id, {
-    SessionProfile? definition,
-    TerminalTheme? resolvedTheme,
-    bool followsGlobalTheme = true,
-    TerminalAppearanceProfile? resolvedAppearance,
-  }) {
-    appLog(AppLogTag.terminal, 'Creating terminal session $id.');
-    final session = TerminalSession(
-      profile: definition,
-      resolvedTheme: resolvedTheme,
-      followsGlobalTheme: followsGlobalTheme,
-      resolvedAppearance: resolvedAppearance,
-    );
-    sessions[id] = session;
-    return session;
+  final ProfileStore _profileStore;
+  final ThemePresetStore _themeStore;
+  Map<String, String> _ptyEnvironment = {};
+  List<WorkspaceProfile> profiles = [];
+  final activatedWorkspaceIds = <String>[];
+
+  List<TerminalThemePreset> get themePresets => _themeStore.presets;
+  TerminalTheme get globalTheme => _themeStore.globalTheme;
+  TerminalAppearanceProfile get globalAppearance =>
+      _themeStore.globalAppearance;
+  String get globalThemeId => _themeStore.globalThemeId;
+
+  Future<void> initialize() async {
+    await _themeStore.initialize();
+    _ptyEnvironment = await _resolvePtyEnvironment();
+    await loadProfiles();
+  }
+
+  Map<String, String> get ptyEnvironment => _ptyEnvironment;
+
+  Future<Map<String, String>> _resolvePtyEnvironment() async {
+    final environment = <String, String>{...Platform.environment};
+    final shell = environment['SHELL'];
+    if (Platform.isMacOS && shell != null && shell.isNotEmpty) {
+      try {
+        final result = await Process.run(shell, [
+          '-l',
+          '-c',
+          'printf %s "\$PATH"',
+        ]);
+        final path = result.stdout.toString().trim();
+        if (result.exitCode == 0 && path.isNotEmpty) {
+          environment['PATH'] = path;
+          appLog(
+            AppLogTag.workspace,
+            'Resolved login-shell PATH for terminal sessions.',
+          );
+        }
+      } catch (error, stackTrace) {
+        appLog(
+          AppLogTag.error,
+          'Could not resolve login-shell environment; using process environment.',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+    return environment;
+  }
+
+  Future<void> selectGlobalTheme(String presetId) async {
+    await _themeStore.selectGlobalTheme(presetId);
+    notifyListeners();
+  }
+
+  Future<void> updateGlobalAppearance(
+    TerminalAppearanceProfile appearance,
+  ) async {
+    await _themeStore.updateGlobalAppearance(appearance);
+    notifyListeners();
+  }
+
+  TerminalTheme resolveTheme({
+    TerminalTheme? sessionTheme,
+    TerminalTheme? workspaceTheme,
+  }) => _themeStore.resolveTheme(
+    sessionTheme: sessionTheme,
+    workspaceTheme: workspaceTheme,
+  );
+
+  TerminalAppearanceProfile resolveAppearance({
+    TerminalAppearanceProfile? sessionAppearance,
+    TerminalAppearanceProfile? workspaceAppearance,
+    TerminalTheme? sessionTheme,
+    TerminalTheme? workspaceTheme,
+  }) => _themeStore.resolveAppearance(
+    sessionAppearance: sessionAppearance,
+    workspaceAppearance: workspaceAppearance,
+    sessionTheme: sessionTheme,
+    workspaceTheme: workspaceTheme,
+  );
+
+  Future<void> saveProfile(WorkspaceProfile profile) =>
+      _profileStore.saveProfile(profile);
+
+  Future<void> flushProfile(WorkspaceProfile profile) =>
+      _profileStore.flushProfile(profile);
+
+  Future<void> deleteProfile(String id) => _profileStore.deleteProfile(id);
+
+  WorkspaceProfile? workspaceById(String id) {
+    for (final profile in profiles) {
+      if (profile.id == id) return profile;
+    }
+    return null;
+  }
+
+  void activateWorkspace(String id) {
+    if (activatedWorkspaceIds.contains(id)) return;
+    activatedWorkspaceIds.add(id);
+    notifyListeners();
+  }
+
+  void deactivateWorkspace(String id) {
+    if (!activatedWorkspaceIds.remove(id)) return;
+    notifyListeners();
+  }
+
+  void removeProfile(WorkspaceProfile profile) {
+    profiles = [...profiles]..remove(profile);
+    notifyListeners();
+  }
+
+  void saveProfileInMemory(WorkspaceProfile profile) {
+    final index = profiles.indexWhere((item) => item.id == profile.id);
+    if (index < 0) return;
+    profiles = [...profiles]..[index] = profile;
+    notifyListeners();
   }
 
   Future<void> loadProfiles() async {
-    profiles = await profileStore.loadProfiles();
+    profiles = await _profileStore.loadProfiles();
+    notifyListeners();
     appLog(AppLogTag.workspace, 'Loaded workspace profile list.');
   }
 
@@ -211,8 +316,9 @@ class AppState {
       name: 'Default workspace',
       sessions: [SessionProfile(id: 'terminal-1', name: 'Terminal 1')],
     );
-    await profileStore.saveProfile(profile);
+    await saveProfile(profile);
     profiles = [...profiles, profile];
+    notifyListeners();
     appLog(
       AppLogTag.workspace,
       'Created default workspace profile (${profile.id}).',
@@ -242,8 +348,9 @@ class AppState {
       terminalTheme: source.terminalTheme,
       appearance: source.appearance,
     );
-    await profileStore.saveProfile(profile);
+    await saveProfile(profile);
     profiles = [...profiles, profile];
+    notifyListeners();
     appLog(
       AppLogTag.workspace,
       'Duplicated workspace profile ${source.id} as ${profile.id}.',
@@ -251,14 +358,65 @@ class AppState {
     return profile;
   }
 
+  @override
+  void dispose() {
+    super.dispose();
+  }
+}
+
+class WorkspaceRuntimeState extends ChangeNotifier {
+  WorkspaceRuntimeState({required this.appState, required this.workspaceId});
+
+  final AppState appState;
+  final String workspaceId;
+  final sessions = <String, TerminalSession>{};
+
+  WorkspaceProfile get profile {
+    final value = appState.workspaceById(workspaceId);
+    if (value == null) {
+      throw StateError('Workspace profile $workspaceId no longer exists.');
+    }
+    return value;
+  }
+
+  TerminalSession createSession(
+    String id, {
+    SessionProfile? definition,
+    TerminalTheme? resolvedTheme,
+    bool followsGlobalTheme = true,
+    TerminalAppearanceProfile? resolvedAppearance,
+  }) {
+    appLog(
+      AppLogTag.terminal,
+      'Creating terminal session $id in workspace $workspaceId.',
+    );
+    sessions.remove(id)?.dispose();
+    final session = TerminalSession(
+      themeStore: appState._themeStore,
+      environment: appState.ptyEnvironment,
+      profile: definition,
+      resolvedTheme: resolvedTheme,
+      followsGlobalTheme: followsGlobalTheme,
+      resolvedAppearance: resolvedAppearance,
+    );
+    sessions[id] = session;
+    return session;
+  }
+
+  void disposeSession(String id) {
+    sessions.remove(id)?.dispose();
+  }
+
+  @override
   void dispose() {
     appLog(
       AppLogTag.workspace,
-      'Disposing app state with ${sessions.length} terminal session(s).',
+      'Disposing workspace runtime $workspaceId with ${sessions.length} terminal session(s).',
     );
     for (final session in sessions.values) {
       session.dispose();
     }
     sessions.clear();
+    super.dispose();
   }
 }

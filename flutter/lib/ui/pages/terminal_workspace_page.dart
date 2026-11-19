@@ -4,11 +4,12 @@ import 'package:dock_panel/dock_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:macos_ui/macos_ui.dart';
+import 'package:provider/provider.dart';
 
 import '../../app_log.dart';
 import '../../app_state.dart';
 import '../../profile_models.dart';
-import '../../theme_presets.dart';
+import '../../window_navigator.dart';
 import '../components/session_editor_sheet.dart';
 import '../components/session_icons.dart';
 import '../components/session_theme_dialog.dart';
@@ -17,11 +18,11 @@ import 'terminal_pane.dart';
 class TerminalWorkspacePage extends ConsumerStatefulWidget {
   const TerminalWorkspacePage({
     super.key,
-    required this.profile,
+    required this.workspaceId,
     this.initialize = true,
   });
 
-  final WorkspaceProfile profile;
+  final String workspaceId;
   final bool initialize;
 
   @override
@@ -30,13 +31,16 @@ class TerminalWorkspacePage extends ConsumerStatefulWidget {
 }
 
 class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
-  final _appState = AppState();
+  late final AppState _appState;
+  late final WorkspaceRuntimeState _runtime;
   late final DockManager _dockManager;
   OverlayEntry? _tabMenu;
 
   @override
   void initState() {
     super.initState();
+    _appState = context.read<AppState>();
+    _runtime = context.read<WorkspaceRuntimeState>();
     _dockManager = ref.read(dockManagerProvider.notifier);
     if (!widget.initialize) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -46,15 +50,16 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
   }
 
   void _initializeWorkspace() {
-    final savedLayout = widget.profile.dockLayout;
+    final profile = _runtime.profile;
+    final savedLayout = profile.dockLayout;
     appLog(
       AppLogTag.workspace,
-      'Initializing workspace "${widget.profile.name}" (${widget.profile.id}) '
-      'with ${widget.profile.sessions.length} terminal session(s); '
+      'Initializing workspace "${profile.name}" (${profile.id}) '
+      'with ${profile.sessions.length} terminal session(s); '
       'saved layout: ${savedLayout != null}.',
     );
     final panels = <DockPanel>[_welcomePanel()];
-    for (final definition in widget.profile.sessions) {
+    for (final definition in profile.sessions) {
       panels.add(_terminalPanel(definition));
     }
 
@@ -63,10 +68,7 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
     }
     if (savedLayout != null) {
       _dockManager.restoreLayout(savedLayout);
-      appLog(
-        AppLogTag.dock,
-        'Restored saved dock layout for ${widget.profile.id}.',
-      );
+      appLog(AppLogTag.dock, 'Restored saved dock layout for ${profile.id}.');
       for (final panel in panels) {
         if (!_dockManager.containsPanel(panel.id)) {
           _dockManager.addPanel(panel);
@@ -79,7 +81,7 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
     }
     _dockManager.setLayoutChangeListener(_saveLayout);
     _saveLayout(_dockManager.exportLayout());
-    appLog(AppLogTag.workspace, 'Workspace ${widget.profile.id} initialized.');
+    appLog(AppLogTag.workspace, 'Workspace ${profile.id} initialized.');
   }
 
   DockPanel _terminalPanel(
@@ -89,22 +91,22 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
     final id = definition.id;
     final session =
         existingSession ??
-        _appState.createSession(
+        _runtime.createSession(
           id,
           definition: definition,
-          resolvedTheme: ThemePresetStore.instance.resolveTheme(
+          resolvedTheme: _appState.resolveTheme(
             sessionTheme: definition.terminalTheme,
-            workspaceTheme: widget.profile.terminalTheme,
+            workspaceTheme: _runtime.profile.terminalTheme,
           ),
-          resolvedAppearance: ThemePresetStore.instance.resolveAppearance(
+          resolvedAppearance: _appState.resolveAppearance(
             sessionAppearance: definition.appearance,
-            workspaceAppearance: widget.profile.appearance,
+            workspaceAppearance: _runtime.profile.appearance,
             sessionTheme: definition.terminalTheme,
-            workspaceTheme: widget.profile.terminalTheme,
+            workspaceTheme: _runtime.profile.terminalTheme,
           ),
           followsGlobalTheme:
               definition.terminalTheme == null &&
-              widget.profile.terminalTheme == null,
+              _runtime.profile.terminalTheme == null,
         );
     return DockPanel(
       id: id,
@@ -117,74 +119,72 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
   }
 
   Future<void> _addTerminal() async {
-    final number = widget.profile.sessions.length + 1;
+    final profile = _runtime.profile;
+    final number = profile.sessions.length + 1;
     final definition = SessionProfile(
-      id: '${widget.profile.id}-session-${DateTime.now().microsecondsSinceEpoch}',
+      id: '${profile.id}-session-${DateTime.now().microsecondsSinceEpoch}',
       name: 'Terminal $number',
     );
-    widget.profile.sessions.add(definition);
+    profile.sessions.add(definition);
     final panel = _terminalPanel(definition);
     _dockManager.addPanel(panel);
     appLog(
       AppLogTag.dock,
-      'Added terminal tab ${definition.id} to ${widget.profile.id}.',
+      'Added terminal tab ${definition.id} to ${profile.id}.',
     );
-    await _appState.profileStore.saveProfile(widget.profile);
+    await _appState.saveProfile(profile);
   }
 
   Future<void> _editTerminal(String panelId) async {
-    final matches = widget.profile.sessions.where(
-      (session) => session.id == panelId,
-    );
+    final profile = _runtime.profile;
+    final matches = profile.sessions.where((session) => session.id == panelId);
     if (matches.isEmpty) return;
     final definition = matches.first;
     final updated = await showSessionEditorSheet(context, definition);
     if (updated == null || !mounted) return;
-    final index = widget.profile.sessions.indexWhere(
+    final index = profile.sessions.indexWhere(
       (session) => session.id == panelId,
     );
-    widget.profile.sessions[index] = updated;
-    _appState.sessions[panelId]?.updateTheme(
-      updated.terminalTheme ?? ThemePresetStore.instance.globalTheme,
+    profile.sessions[index] = updated;
+    _runtime.sessions[panelId]?.updateTheme(
+      updated.terminalTheme ?? _appState.globalTheme,
     );
     _dockManager.updatePanel(
-      _terminalPanel(updated, existingSession: _appState.sessions[panelId]),
+      _terminalPanel(updated, existingSession: _runtime.sessions[panelId]),
     );
-    appLog(
-      AppLogTag.dock,
-      'Updated terminal tab $panelId in ${widget.profile.id}.',
-    );
-    await _appState.profileStore.saveProfile(widget.profile);
+    appLog(AppLogTag.dock, 'Updated terminal tab $panelId in ${profile.id}.');
+    await _appState.saveProfile(profile);
   }
 
   Future<void> _saveLayout(Map<String, dynamic>? layout) async {
-    widget.profile.dockLayout = layout;
+    final profile = _runtime.profile;
+    profile.dockLayout = layout;
     appLog(
       AppLogTag.dock,
-      'Dock layout changed for ${widget.profile.id}; scheduling profile save.',
+      'Dock layout changed for ${profile.id}; scheduling profile save.',
     );
-    await _appState.profileStore.saveProfile(widget.profile);
+    await _appState.saveProfile(profile);
   }
 
   Future<void> _reloadTerminal(String panelId) async {
-    final definition = widget.profile.sessions
+    final definition = _runtime.profile.sessions
         .where((session) => session.id == panelId)
         .firstOrNull;
     if (definition == null) return;
     appLog(
       AppLogTag.dock,
-      'Reloading terminal tab $panelId in ${widget.profile.id}.',
+      'Reloading terminal tab $panelId in ${_runtime.workspaceId}.',
     );
-    _appState.sessions.remove(panelId)?.dispose();
+    _runtime.disposeSession(panelId);
     _dockManager.updatePanel(_terminalPanel(definition));
   }
 
   Future<void> _editTerminalTheme(String panelId) async {
-    final definition = widget.profile.sessions
+    final definition = _runtime.profile.sessions
         .where((session) => session.id == panelId)
         .firstOrNull;
     if (definition == null) return;
-    final runtime = _appState.sessions[panelId];
+    final runtime = _runtime.sessions[panelId];
     final previousTheme = runtime?.theme.value;
     final result = await showSessionThemeDialog(
       context,
@@ -193,8 +193,8 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
       onPreviewTheme: (theme) {
         runtime?.updateTheme(
           theme ??
-              ThemePresetStore.instance.resolveTheme(
-                workspaceTheme: widget.profile.terminalTheme,
+              _appState.resolveTheme(
+                workspaceTheme: _runtime.profile.terminalTheme,
               ),
         );
       },
@@ -204,18 +204,18 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
       return;
     }
     definition.terminalTheme = result.custom ? result.theme : null;
-    await _appState.profileStore.saveProfile(widget.profile);
+    await _appState.saveProfile(_runtime.profile);
   }
 
   Future<void> _closeTerminal(String panelId) async {
     appLog(
       AppLogTag.dock,
-      'Closing terminal tab $panelId in ${widget.profile.id}.',
+      'Closing terminal tab $panelId in ${_runtime.workspaceId}.',
     );
-    _appState.sessions.remove(panelId)?.dispose();
-    widget.profile.sessions.removeWhere((session) => session.id == panelId);
+    _runtime.disposeSession(panelId);
+    _runtime.profile.sessions.removeWhere((session) => session.id == panelId);
     _dockManager.removePanel(panelId);
-    await _appState.profileStore.saveProfile(widget.profile);
+    await _appState.saveProfile(_runtime.profile);
   }
 
   void _showTabMenu(String panelId, Offset globalPosition) {
@@ -272,19 +272,21 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
       title: 'Welcome',
       icon: Icons.waving_hand_outlined,
       closable: false,
-      builder: (_) => _WelcomePanel(onPressed: _addTerminal),
+      builder: (_) => _WelcomePanel(
+        onPressed: _addTerminal,
+        onBackToLauncher: () => WindowNavigator.of(context).openDefault(),
+      ),
     );
   }
 
   @override
   void dispose() {
-    appLog(AppLogTag.workspace, 'Disposing workspace ${widget.profile.id}.');
+    appLog(AppLogTag.workspace, 'Disposing workspace ${_runtime.workspaceId}.');
     _dockManager.setLayoutChangeListener(null);
     _dismissTabMenu();
     if (widget.initialize) {
-      unawaited(_appState.profileStore.flushProfile(widget.profile));
+      unawaited(_appState.flushProfile(_runtime.profile));
     }
-    _appState.dispose();
     super.dispose();
   }
 
@@ -465,24 +467,46 @@ class _TabContextMenuItem extends StatelessWidget {
 }
 
 class _WelcomePanel extends StatelessWidget {
-  const _WelcomePanel({required this.onPressed});
+  const _WelcomePanel({
+    required this.onPressed,
+    required this.onBackToLauncher,
+  });
 
   final VoidCallback onPressed;
+  final VoidCallback onBackToLauncher;
 
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: PushButton(
-        controlSize: ControlSize.regular,
-        onPressed: onPressed,
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.add, size: 16),
-            SizedBox(width: 6),
-            Text('New terminal'),
-          ],
-        ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PushButton(
+            controlSize: ControlSize.regular,
+            onPressed: onPressed,
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.add, size: 16),
+                SizedBox(width: 6),
+                Text('New terminal'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          PushButton(
+            controlSize: ControlSize.regular,
+            onPressed: onBackToLauncher,
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.home_outlined, size: 16),
+                SizedBox(width: 6),
+                Text('Back to launcher'),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

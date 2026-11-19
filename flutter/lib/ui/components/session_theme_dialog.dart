@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
+import 'package:provider/provider.dart';
 import 'package:xterm/xterm.dart';
 
+import '../../app_state.dart';
 import '../../profile_models.dart';
-import '../../theme_presets.dart';
 import 'terminal_theme_editor.dart';
 import 'terminal_theme_gallery.dart';
 
@@ -61,7 +62,7 @@ class _SessionThemeDialogState extends State<_SessionThemeDialog> {
     _theme =
         widget.initialTheme ??
         widget.session.terminalTheme ??
-        ThemePresetStore.instance.globalTheme;
+        context.read<AppState>().globalTheme;
   }
 
   void _preview() {
@@ -71,7 +72,7 @@ class _SessionThemeDialogState extends State<_SessionThemeDialog> {
   Future<void> _choosePreset() async {
     final preset = await showTerminalThemeGallery(
       context,
-      presets: ThemePresetStore.instance.presets,
+      presets: context.read<AppState>().themePresets,
       selectedPresetId: _selectedPresetId,
     );
     if (preset == null || !mounted) return;

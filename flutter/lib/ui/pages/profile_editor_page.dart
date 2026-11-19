@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
+import 'package:provider/provider.dart';
 
 import '../../app_state.dart';
 import '../../profile_models.dart';
-import '../../theme_presets.dart';
 import '../components/app_context_menu.dart';
 import '../components/session_editor_sheet.dart';
 import '../components/session_icons.dart';
@@ -20,7 +20,6 @@ class ProfileEditorPage extends StatefulWidget {
 }
 
 class _ProfileEditorPageState extends State<ProfileEditorPage> {
-  final _appState = AppState();
   late final TextEditingController _nameController;
 
   @override
@@ -32,7 +31,6 @@ class _ProfileEditorPageState extends State<ProfileEditorPage> {
   @override
   void dispose() {
     _nameController.dispose();
-    _appState.dispose();
     super.dispose();
   }
 
@@ -40,7 +38,7 @@ class _ProfileEditorPageState extends State<ProfileEditorPage> {
     final name = _nameController.text.trim();
     if (name.isEmpty) return;
     widget.profile.name = name;
-    await _appState.profileStore.saveProfile(widget.profile);
+    await context.read<AppState>().saveProfile(widget.profile);
     if (mounted) Navigator.pop(context, true);
   }
 
@@ -74,7 +72,7 @@ class _ProfileEditorPageState extends State<ProfileEditorPage> {
   Future<void> _editWorkspaceTheme() async {
     final selected = await showTerminalThemeGallery(
       context,
-      presets: ThemePresetStore.instance.presets,
+      presets: context.read<AppState>().themePresets,
     );
     if (selected == null || !mounted) return;
     setState(() => widget.profile.terminalTheme = selected.theme);

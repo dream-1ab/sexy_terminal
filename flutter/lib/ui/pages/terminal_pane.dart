@@ -31,6 +31,7 @@ class _TerminalPaneState extends State<TerminalPane> {
               theme: appearance.theme,
               textStyle: appearance.textStyle,
               autofocus: true,
+              hardwareKeyboardOnly: true,
               backgroundOpacity: 1,
               onSecondaryTapDown: (details, offset) async {
                 final selection = session.controller.selection;

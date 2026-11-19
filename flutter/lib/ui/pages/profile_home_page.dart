@@ -2,6 +2,7 @@ import 'package:dock_panel/dock_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:macos_ui/macos_ui.dart';
+import 'package:provider/provider.dart' as app_provider;
 
 import '../../app_state.dart';
 import '../../profile_models.dart';
@@ -10,42 +11,49 @@ import 'profile_editor_page.dart';
 import 'terminal_workspace_page.dart';
 
 class ProfileHomePage extends StatefulWidget {
-  const ProfileHomePage({super.key});
+  const ProfileHomePage({super.key, this.onOpenWorkspace});
+
+  final ValueChanged<String>? onOpenWorkspace;
 
   @override
   State<ProfileHomePage> createState() => _ProfileHomePageState();
 }
 
 class _ProfileHomePageState extends State<ProfileHomePage> {
-  final _appState = AppState();
-  var _loading = true;
-
   static const _contentBackground = Color.fromRGBO(18, 19, 20, 1);
-  static const _surfaceBackground = Color.fromRGBO(43, 43, 43, 1);
 
   @override
   void initState() {
     super.initState();
-    _appState.loadProfiles().then((_) {
-      if (mounted) setState(() => _loading = false);
-    });
   }
 
   Future<void> _createProfile() async {
-    final profile = await _appState.createDefaultProfile();
+    final appState = context.read<AppState>();
+    final profile = await appState.createDefaultProfile();
     if (!mounted) return;
     setState(() {});
     _openProfile(profile);
   }
 
   void _openProfile(WorkspaceProfile profile) {
+    final openWorkspace = widget.onOpenWorkspace;
+    if (openWorkspace != null) {
+      openWorkspace(profile.id);
+      return;
+    }
     ProviderScope.containerOf(
       context,
       listen: false,
     ).read(dockManagerProvider.notifier).clear();
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => TerminalWorkspacePage(profile: profile),
+        builder: (_) => app_provider.ChangeNotifierProvider(
+          create: (_) => WorkspaceRuntimeState(
+            appState: context.read<AppState>(),
+            workspaceId: profile.id,
+          ),
+          child: TerminalWorkspacePage(workspaceId: profile.id),
+        ),
       ),
     );
   }
@@ -58,7 +66,7 @@ class _ProfileHomePageState extends State<ProfileHomePage> {
   }
 
   Future<void> _duplicate(WorkspaceProfile profile) async {
-    await _appState.duplicateProfile(profile);
+    await context.read<AppState>().duplicateProfile(profile);
     if (mounted) setState(() {});
   }
 
@@ -91,7 +99,7 @@ class _ProfileHomePageState extends State<ProfileHomePage> {
     controller.dispose();
     if (value == null || value.trim().isEmpty) return;
     profile.name = value.trim();
-    await _appState.profileStore.saveProfile(profile);
+    await context.read<AppState>().saveProfile(profile);
     if (mounted) setState(() {});
   }
 
@@ -105,26 +113,22 @@ class _ProfileHomePageState extends State<ProfileHomePage> {
       ),
     );
     if (confirmed != true) return;
-    await _appState.profileStore.deleteProfile(profile.id);
-    _appState.profiles.remove(profile);
+    final appState = context.read<AppState>();
+    await appState.deleteProfile(profile.id);
+    appState.removeProfile(profile);
     if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    _appState.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const ColoredBox(
-        color: _contentBackground,
-        child: Center(child: ProgressCircle()),
-      );
-    }
-    if (_appState.profiles.isEmpty) {
+    final appState = context.watch<AppState>();
+    final profiles = appState.profiles;
+    if (profiles.isEmpty) {
       return ColoredBox(
         color: _contentBackground,
         child: _EmptyWorkspaceState(onCreate: _createProfile),
@@ -132,91 +136,155 @@ class _ProfileHomePageState extends State<ProfileHomePage> {
     }
     return ColoredBox(
       color: _contentBackground,
-      child: Column(
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(56, 42, 56, 32),
         children: [
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
-              itemCount: _appState.profiles.length,
-              itemBuilder: (context, index) {
-                final profile = _appState.profiles[index];
-                final color = profile.sessions.isEmpty
-                    ? const Color(0xff8aa4c2)
-                    : profile.sessions.first.color;
-                return GestureDetector(
-                  onSecondaryTapDown: (details) =>
-                      _showProfileMenu(profile, details.globalPosition),
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
-                      onTap: () => _openProfile(profile),
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _surfaceBackground,
-                          border: Border.all(color: const Color(0xff3b414b)),
-                          borderRadius: BorderRadius.circular(5),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.workspaces_outlined, color: color),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    profile.name,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 3),
-                                  Text(
-                                    '${profile.sessions.length} terminal sessions',
-                                    style: const TextStyle(
-                                      color: Color(0xffa9b0bb),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            ContextMenuButton(
-                              onPressedAt: (position) =>
-                                  _showProfileMenu(profile, position),
-                            ),
-                          ],
-                        ),
-                      ),
+          Text(
+            'Workspace Manager',
+            style: MacosTheme.of(context).typography.largeTitle,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Open a workspace or create one for a project.',
+            style: MacosTheme.of(context).typography.subheadline,
+          ),
+          const SizedBox(height: 34),
+          Text('Workspaces', style: MacosTheme.of(context).typography.title2),
+          const SizedBox(height: 10),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: const Color.fromRGBO(30, 31, 33, 1),
+              border: Border.all(color: const Color(0xff34373d)),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Column(
+              children: [
+                for (var index = 0; index < profiles.length; index++)
+                  _WorkspaceListRow(
+                    profile: profiles[index],
+                    running: appState.activatedWorkspaceIds.contains(
+                      profiles[index].id,
                     ),
+                    onTap: () => _openProfile(profiles[index]),
+                    onMenu: (position) =>
+                        _showProfileMenu(profiles[index], position),
+                    showDivider: index < profiles.length - 1,
                   ),
-                );
-              },
+              ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: PushButton(
-                controlSize: ControlSize.regular,
-                onPressed: _createProfile,
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.add, size: 16),
-                    SizedBox(width: 6),
-                    Text('New workspace profile'),
-                  ],
-                ),
+          const SizedBox(height: 24),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: PushButton(
+              controlSize: ControlSize.regular,
+              onPressed: _createProfile,
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.add, size: 16),
+                  SizedBox(width: 7),
+                  Text('New workspace'),
+                ],
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _WorkspaceListRow extends StatefulWidget {
+  const _WorkspaceListRow({
+    required this.profile,
+    required this.running,
+    required this.onTap,
+    required this.onMenu,
+    required this.showDivider,
+  });
+
+  final WorkspaceProfile profile;
+  final bool running;
+  final VoidCallback onTap;
+  final ValueChanged<Offset> onMenu;
+  final bool showDivider;
+
+  @override
+  State<_WorkspaceListRow> createState() => _WorkspaceListRowState();
+}
+
+class _WorkspaceListRowState extends State<_WorkspaceListRow> {
+  var _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = MacosTheme.of(context);
+    final iconColor = widget.profile.sessions.isEmpty
+        ? const Color(0xff8aa4c2)
+        : widget.profile.sessions.first.color;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        onSecondaryTapDown: (details) => widget.onMenu(details.globalPosition),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 100),
+          color: _hovered ? const Color.fromRGBO(48, 50, 54, 1) : null,
+          padding: const EdgeInsets.fromLTRB(16, 13, 10, 13),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.workspaces_outlined, size: 20, color: iconColor),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.profile.name,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${widget.profile.sessions.length} terminal sessions',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.typography.caption1.color,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (widget.running)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 12),
+                      child: Text(
+                        'Running',
+                        style: TextStyle(
+                          color: Color(0xff68c78a),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ContextMenuButton(onPressedAt: widget.onMenu),
+                ],
+              ),
+              if (widget.showDivider)
+                const Padding(
+                  padding: EdgeInsets.only(top: 13),
+                  child: Divider(height: 1, color: Color(0xff34373d)),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
