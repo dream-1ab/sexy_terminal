@@ -332,7 +332,13 @@ class AppState extends ChangeNotifier {
     final profile = WorkspaceProfile(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       name: 'Default workspace',
-      sessions: [SessionProfile(id: 'terminal-1', name: 'Terminal 1')],
+      sessions: [
+        SessionProfile(
+          id: 'terminal-1',
+          name: 'Terminal 1',
+          shell: SessionProfile.defaultShell,
+        ),
+      ],
     );
     await saveProfile(profile);
     profiles = [...profiles, profile];

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:ui';
 
 import 'package:xterm/xterm.dart';
@@ -6,6 +7,9 @@ import 'terminal_theme_codec.dart';
 import 'terminal_appearance.dart';
 
 class SessionProfile {
+  static String? get defaultShell =>
+      Platform.isWindows ? 'powershell.exe' : null;
+
   SessionProfile({
     required this.id,
     required this.name,

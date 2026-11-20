@@ -118,6 +118,7 @@ class _TerminalWorkspacePageState extends ConsumerState<TerminalWorkspacePage> {
     final definition = SessionProfile(
       id: '${profile.id}-session-${DateTime.now().microsecondsSinceEpoch}',
       name: 'Terminal $number',
+      shell: SessionProfile.defaultShell,
     );
     profile.sessions.add(definition);
     final panel = _terminalPanel(definition);
@@ -447,11 +448,11 @@ class _TabContextMenu extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           _TabContextMenuItem(label: 'Edit', onTap: onEdit),
-          Divider(height: 1, thickness: 0.1,),
+          Divider(height: 1, thickness: 0.1),
           _TabContextMenuItem(label: 'Color theme', onTap: onTheme),
-          Divider(height: 1, thickness: 0.1,),
+          Divider(height: 1, thickness: 0.1),
           _TabContextMenuItem(label: 'Reload', onTap: onReload),
-          Divider(height: 1, thickness: 0.1,),
+          Divider(height: 1, thickness: 0.1),
           _TabContextMenuItem(label: 'Close', onTap: onClose),
         ],
       ),

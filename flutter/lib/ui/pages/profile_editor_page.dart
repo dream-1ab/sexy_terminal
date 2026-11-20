@@ -56,6 +56,7 @@ class _ProfileEditorPageState extends State<ProfileEditorPage> {
     final draft = SessionProfile(
       id: '${widget.profile.id}-session-$number',
       name: 'Terminal $number',
+      shell: SessionProfile.defaultShell,
     );
     final session = await showSessionEditorSheet(context, draft);
     if (session != null && mounted) {
