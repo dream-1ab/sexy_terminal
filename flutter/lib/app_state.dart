@@ -129,6 +129,11 @@ class TerminalSession {
     theme.value = value.theme;
   }
 
+  void writeText(String text) {
+    if (_disposed) return;
+    pty.write(utf8.encode(text));
+  }
+
   void _updateFromGlobalTheme() {
     if (!_disposed) updateAppearance(_themeStore.globalAppearance);
   }

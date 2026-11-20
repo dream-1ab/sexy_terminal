@@ -1,5 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
+import 'dart:async';
+import 'package:xterm/src/core/buffer/cell_offset.dart';
 import 'package:xterm/src/core/mouse/button.dart';
 import 'package:xterm/src/core/mouse/button_state.dart';
 import 'package:xterm/src/terminal_view.dart';
@@ -55,9 +57,16 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
 
   RenderTerminal get renderTerminal => terminalView.renderTerminal;
 
-  DragStartDetails? _lastDragStartDetails;
-
   LongPressStartDetails? _lastLongPressStartDetails;
+  Offset? _selectionPosition;
+  CellOffset? _selectionStartCell;
+  Timer? _selectionScrollTimer;
+
+  @override
+  void dispose() {
+    _selectionScrollTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -75,6 +84,7 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
       // onLongPressUp: onLongPressUp,
       onDragStart: onDragStart,
       onDragUpdate: onDragUpdate,
+      onDragEnd: onDragEnd,
       onDoubleTapDown: onDoubleTapDown,
     );
   }
@@ -175,17 +185,33 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
   // void onLongPressUp() {}
 
   void onDragStart(DragStartDetails details) {
-    _lastDragStartDetails = details;
+    _selectionPosition = details.localPosition;
+    _selectionStartCell = renderTerminal.getCellOffset(details.localPosition);
+    _updateSelection();
+    _selectionScrollTimer = Timer.periodic(
+      const Duration(milliseconds: 16),
+      (_) => _updateSelection(),
+    );
+  }
 
-    details.kind == PointerDeviceKind.mouse
-        ? renderTerminal.selectCharacters(details.localPosition)
-        : renderTerminal.selectWord(details.localPosition);
+  void onDragEnd(DragEndDetails details) {
+    _selectionScrollTimer?.cancel();
+    _selectionScrollTimer = null;
+    _selectionPosition = null;
+    _selectionStartCell = null;
+  }
+
+  void _updateSelection() {
+    final startCell = _selectionStartCell;
+    final position = _selectionPosition;
+    if (startCell == null || position == null) return;
+
+    terminalView.scrollSelectionIfNeeded(position);
+    terminalView.selectCharactersFromCell(startCell, position);
   }
 
   void onDragUpdate(DragUpdateDetails details) {
-    renderTerminal.selectCharacters(
-      _lastDragStartDetails!.localPosition,
-      details.localPosition,
-    );
+    _selectionPosition = details.localPosition;
+    _updateSelection();
   }
 }

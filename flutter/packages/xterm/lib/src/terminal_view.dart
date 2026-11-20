@@ -159,6 +159,8 @@ class TerminalViewState extends State<TerminalView> {
 
   String? _composingText;
 
+  double _viewportHeight = 0;
+
   late TerminalController _controller;
 
   late ScrollController _scrollController;
@@ -218,25 +220,28 @@ class TerminalViewState extends State<TerminalView> {
 
   @override
   Widget build(BuildContext context) {
-    Widget child = Scrollable(
-      key: _scrollableKey,
-      controller: _scrollController,
-      viewportBuilder: (context, offset) {
-        return _TerminalView(
-          key: _viewportKey,
-          terminal: widget.terminal,
-          controller: _controller,
-          offset: offset,
-          padding: MediaQuery.of(context).padding,
-          autoResize: widget.autoResize,
-          textStyle: widget.textStyle,
-          textScaler: widget.textScaler ?? MediaQuery.textScalerOf(context),
-          theme: widget.theme,
-          focusNode: _focusNode,
-          cursorType: widget.cursorType,
-          alwaysShowCursor: widget.alwaysShowCursor,
-          onEditableRect: _onEditableRect,
-          composingText: _composingText,
+    Widget child = LayoutBuilder(
+      builder: (context, constraints) {
+        _viewportHeight = constraints.maxHeight;
+        return Scrollable(
+          key: _scrollableKey,
+          controller: _scrollController,
+          viewportBuilder: (context, offset) => _TerminalView(
+            key: _viewportKey,
+            terminal: widget.terminal,
+            controller: _controller,
+            offset: offset,
+            padding: MediaQuery.of(context).padding,
+            autoResize: widget.autoResize,
+            textStyle: widget.textStyle,
+            textScaler: widget.textScaler ?? MediaQuery.textScalerOf(context),
+            theme: widget.theme,
+            focusNode: _focusNode,
+            cursorType: widget.cursorType,
+            alwaysShowCursor: widget.alwaysShowCursor,
+            onEditableRect: _onEditableRect,
+            composingText: _composingText,
+          ),
         );
       },
     );
@@ -338,6 +343,37 @@ class TerminalViewState extends State<TerminalView> {
   Rect get globalCursorRect {
     return renderTerminal.localToGlobal(renderTerminal.cursorOffset) &
         renderTerminal.cellSize;
+  }
+
+  void scrollSelectionIfNeeded(Offset position) {
+    final viewportHeight = _viewportHeight;
+    if (viewportHeight <= 0) return;
+    const edge = 28.0;
+    var delta = 0.0;
+    if (position.dy < edge) {
+      delta = -_controllerLineHeight;
+    } else if (position.dy > viewportHeight - edge) {
+      delta = _controllerLineHeight;
+    }
+    if (delta == 0 || !_scrollController.hasClients) return;
+    final next = (_scrollController.offset + delta).clamp(
+      _scrollController.position.minScrollExtent,
+      _scrollController.position.maxScrollExtent,
+    );
+    _scrollController.jumpTo(next);
+  }
+
+  double get _controllerLineHeight => renderTerminal.lineHeight;
+
+  void selectCharactersFromCell(CellOffset from, Offset to) {
+    final toPosition = renderTerminal.getCellOffset(to);
+    final extent = toPosition.x >= from.x
+        ? CellOffset(toPosition.x + 1, toPosition.y)
+        : toPosition;
+    _controller.setSelection(
+      widget.terminal.buffer.createAnchorFromOffset(from),
+      widget.terminal.buffer.createAnchorFromOffset(extent),
+    );
   }
 
   void _onTapUp(TapUpDetails details) {
