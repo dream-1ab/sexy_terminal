@@ -50,6 +50,10 @@ class TerminalController with ChangeNotifier {
     return _createRange(base.offset, extent.offset);
   }
 
+  /// The fixed cell where the current selection started.
+  CellOffset? get selectionBase =>
+      _selectionBase?.attached == true ? _selectionBase!.offset : null;
+
   /// Set selection on the terminal from [base] to [extent]. This method takes
   /// the ownership of [base] and [extent] and will dispose them when the
   /// selection is cleared or changed.

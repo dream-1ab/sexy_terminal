@@ -381,8 +381,12 @@ class TerminalViewState extends State<TerminalView> {
     widget.onTapUp?.call(details, offset);
   }
 
-  void _onTapDown(_) {
-    if (_controller.selection != null) {
+  void _onTapDown(TapDownDetails details) {
+    final selectionBase = _controller.selectionBase;
+    if (HardwareKeyboard.instance.isShiftPressed && selectionBase != null) {
+      selectCharactersFromCell(selectionBase, details.localPosition);
+      _focusNode.requestFocus();
+    } else if (_controller.selection != null) {
       _controller.clearSelection();
     } else {
       if (!widget.hardwareKeyboardOnly) {
