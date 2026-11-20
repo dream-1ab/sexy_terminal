@@ -381,11 +381,11 @@ class _WorkspaceTabHeaderContent extends StatelessWidget {
           ],
           Text(title, style: TextStyle(color: textColor, fontSize: 12)),
           if (!isWelcomePanel) ...[
-            const SizedBox(width: 8),
+            // const SizedBox(width: 2),
             _TabMenuButton(onPressedAt: onMenuRequested, color: textColor),
           ],
           if (!isWelcomePanel && onClose != null) ...[
-            const SizedBox(width: 6),
+            // const SizedBox(width: 6),
             GestureDetector(
               onTap: onClose,
               child: Icon(
@@ -447,8 +447,11 @@ class _TabContextMenu extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           _TabContextMenuItem(label: 'Edit', onTap: onEdit),
-          _TabContextMenuItem(label: 'Theme…', onTap: onTheme),
+          Divider(height: 1, thickness: 0.1,),
+          _TabContextMenuItem(label: 'Color theme', onTap: onTheme),
+          Divider(height: 1, thickness: 0.1,),
           _TabContextMenuItem(label: 'Reload', onTap: onReload),
+          Divider(height: 1, thickness: 0.1,),
           _TabContextMenuItem(label: 'Close', onTap: onClose),
         ],
       ),
@@ -467,7 +470,7 @@ class _TabContextMenuItem extends StatelessWidget {
     child: MouseRegion(
       cursor: SystemMouseCursors.click,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
         child: Align(alignment: Alignment.centerLeft, child: Text(label)),
       ),
     ),

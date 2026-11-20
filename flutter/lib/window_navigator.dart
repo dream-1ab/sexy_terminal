@@ -1,6 +1,7 @@
 // ignore_for_file: invalid_use_of_internal_member
 // ignore_for_file: implementation_imports
 
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -86,6 +87,7 @@ class _WindowNavigatorState extends State<WindowNavigator> {
     super.initState();
     controller = WindowNavigatorController._(this);
     _defaultEntry = _createEntry(widget.defaultWindow);
+    FocusManager.instance.addEarlyKeyEventHandler(_handleEarlyKeyEvent);
   }
 
   WindowEntry _createEntry(WindowSpec spec) {
@@ -155,11 +157,38 @@ class _WindowNavigatorState extends State<WindowNavigator> {
   }
 
   WindowController? _controllerFor(BuildContext context) {
-    final current = WindowScope.of(context);
+    final current = WindowScope.maybeOf(context);
     for (final handle in _entries.values) {
       if (identical(handle.controller, current)) return handle.controller;
     }
     return null;
+  }
+
+  KeyEventResult _handleEarlyKeyEvent(KeyEvent event) {
+    if (event is! KeyDownEvent || !HardwareKeyboard.instance.isMetaPressed) {
+      return KeyEventResult.ignored;
+    }
+    final context = FocusManager.instance.primaryFocus?.context;
+    final current = context == null ? null : _controllerFor(context);
+    switch (event.logicalKey) {
+      case LogicalKeyboardKey.keyN:
+        controller.openDefault();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.keyM:
+        if (current == null) return KeyEventResult.ignored;
+        current.setMinimized(true);
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.keyW:
+        if (current == null) return KeyEventResult.ignored;
+        current.destroy();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.keyQ:
+        final dialogContext = context ?? _entryContexts[_activeHandle?.spec.id];
+        if (dialogContext == null) return KeyEventResult.ignored;
+        unawaited(controller.requestQuit(dialogContext));
+        return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
   }
 
   _WindowHandle? get _activeHandle {
@@ -233,6 +262,7 @@ class _WindowNavigatorState extends State<WindowNavigator> {
 
   @override
   void dispose() {
+    FocusManager.instance.removeEarlyKeyEventHandler(_handleEarlyKeyEvent);
     _suppressEmptyPolicy = true;
     for (final handle in List<_WindowHandle>.from(_entries.values)) {
       if (!handle.controller.isDestroyed) handle.controller.destroy();
