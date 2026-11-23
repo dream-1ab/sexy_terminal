@@ -15,3 +15,6 @@ flutter/packages/*/.dart_tool/
 flutter/build/
 flutter/.dart_tool/
 flutter/macos/Pods/
+
+# Local release binaries (uploaded separately to GitHub releases)
+prebuild_binaries/

@@ -3,6 +3,7 @@
 #include <flutter/generated_plugin_registrant.h>
 
 #include "utils.h"
+#include "window_file_drop.h"
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
@@ -23,6 +24,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // WindowManager creates the launcher and workspace windows.
   auto const engine{std::make_shared<flutter::FlutterEngine>(project)};
   RegisterPlugins(engine.get());
+  auto window_file_drop = std::make_unique<WindowFileDrop>(engine.get());
   engine->Run();
 
   ::MSG msg;
@@ -31,6 +33,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     ::DispatchMessage(&msg);
   }
 
+  window_file_drop.reset();
   ::CoUninitialize();
   return EXIT_SUCCESS;
 }
